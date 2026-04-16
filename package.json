@@ -1,0 +1,34 @@
+{
+  "name": "pi-neuralwatt-provider",
+  "version": "1.0.0",
+  "description": "Neuralwatt provider extension for pi - Access Kimi, GLM, Qwen, GPT-OSS, Devstral, and MiniMax models through the Neuralwatt API",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "clean": "echo 'nothing to clean'",
+    "build": "echo 'nothing to build'",
+    "check": "echo 'nothing to check'"
+  },
+  "keywords": [
+    "pi",
+    "extension",
+    "provider",
+    "neuralwatt",
+    "ai",
+    "llm",
+    "kimi",
+    "moonshot",
+    "glm",
+    "qwen",
+    "gpt-oss",
+    "devstral",
+    "minimax"
+  ],
+  "author": "",
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

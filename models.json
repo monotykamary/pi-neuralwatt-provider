@@ -1,0 +1,179 @@
+[
+  {
+    "id": "openai/gpt-oss-20b",
+    "name": "Neuralwatt: GPT-OSS 20B",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.50,
+      "output": 1.50,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 16384,
+    "maxTokens": 16384
+  },
+  {
+    "id": "Qwen/Qwen3.5-35B-A3B",
+    "name": "Neuralwatt: Qwen3.5 35B A3B",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.20,
+      "output": 0.60,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 131072,
+    "maxTokens": 131072
+  },
+  {
+    "id": "mistralai/Devstral-Small-2-24B-Instruct-2512",
+    "name": "Neuralwatt: Devstral Small 2 24B",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.15,
+      "output": 0.45,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262144,
+    "maxTokens": 262144
+  },
+  {
+    "id": "zai-org/GLM-5.1-FP8",
+    "name": "Neuralwatt: GLM 5.1 FP8",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.50,
+      "output": 2.10,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202752,
+    "maxTokens": 202752
+  },
+  {
+    "id": "moonshotai/Kimi-K2.5",
+    "name": "Neuralwatt: Kimi K2.5",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.35,
+      "output": 1.70,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262144,
+    "maxTokens": 262144
+  },
+  {
+    "id": "Qwen/Qwen3.5-397B-A17B-FP8",
+    "name": "Neuralwatt: Qwen3.5 397B A17B FP8",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.35,
+      "output": 1.75,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262144,
+    "maxTokens": 262144
+  },
+  {
+    "id": "MiniMaxAI/MiniMax-M2.5",
+    "name": "Neuralwatt: MiniMax M2.5",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.11,
+      "output": 0.95,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 196608,
+    "maxTokens": 131072
+  },
+  {
+    "id": "glm-5-fast",
+    "name": "Neuralwatt: GLM 5 Fast",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.25,
+      "output": 1.10,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202752,
+    "maxTokens": 131072
+  },
+  {
+    "id": "kimi-k2.5-fast",
+    "name": "Neuralwatt: Kimi K2.5 Fast",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.25,
+      "output": 1.25,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262144,
+    "maxTokens": 131072
+  },
+  {
+    "id": "glm-5.1-fast",
+    "name": "Neuralwatt: GLM 5.1 Fast",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.48,
+      "output": 1.90,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202752,
+    "maxTokens": 131072
+  },
+  {
+    "id": "qwen3.5-397b-fast",
+    "name": "Neuralwatt: Qwen3.5 397B Fast",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.25,
+      "output": 1.25,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262144,
+    "maxTokens": 131072
+  }
+]

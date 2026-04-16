@@ -1,0 +1,51 @@
+name: Update Neuralwatt Models
+
+on:
+  schedule:
+    # Run daily at 00:00 UTC
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  update-models:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Fetch and update models
+        run: node scripts/update-models.js
+
+      - name: Check for changes
+        id: check-changes
+        run: |
+          if git diff --quiet; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Pull Request
+        if: steps.check-changes.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: 'feat: update neuralwatt models from API'
+          title: 'feat: update neuralwatt models from API'
+          body: |
+            Automated update of Neuralwatt models from https://api.neuralwatt.com/v1/models
+
+            Changes include:
+            - Updated models in `models.json`
+            - Updated model table in `README.md`
+          branch: update-neuralwatt-models
+          delete-branch: true
