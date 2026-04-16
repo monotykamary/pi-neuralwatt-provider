@@ -13,7 +13,11 @@
       "cacheWrite": 0
     },
     "contextWindow": 16384,
-    "maxTokens": 16384
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
   },
   {
     "id": "Qwen/Qwen3.5-35B-A3B",
@@ -29,7 +33,11 @@
       "cacheWrite": 0
     },
     "contextWindow": 131072,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen"
+    }
   },
   {
     "id": "mistralai/Devstral-Small-2-24B-Instruct-2512",
@@ -45,7 +53,11 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen"
+    }
   },
   {
     "id": "zai-org/GLM-5.1-FP8",
@@ -61,7 +73,10 @@
       "cacheWrite": 0
     },
     "contextWindow": 202752,
-    "maxTokens": 202752
+    "maxTokens": 202752,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "moonshotai/Kimi-K2.5",
@@ -78,7 +93,11 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen"
+    }
   },
   {
     "id": "Qwen/Qwen3.5-397B-A17B-FP8",
@@ -94,7 +113,11 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen"
+    }
   },
   {
     "id": "MiniMaxAI/MiniMax-M2.5",
@@ -110,7 +133,10 @@
       "cacheWrite": 0
     },
     "contextWindow": 196608,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "glm-5-fast",
@@ -126,7 +152,10 @@
       "cacheWrite": 0
     },
     "contextWindow": 202752,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "kimi-k2.5-fast",
@@ -142,7 +171,11 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen"
+    }
   },
   {
     "id": "glm-5.1-fast",
@@ -158,7 +191,10 @@
       "cacheWrite": 0
     },
     "contextWindow": 202752,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "qwen3.5-397b-fast",
@@ -174,6 +210,10 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen"
+    }
   }
 ]

@@ -13,19 +13,19 @@ A [pi](https://github.com/badlogic/pi) extension that adds [Neuralwatt](https://
 
 ## Available Models
 
-| Model | Context | Vision | Reasoning | Input $/M | Output $/M |
-|-------|---------|--------|-----------|-----------|------------|
-| Devstral Small 2 24B | 262K | ❌ | ✅ | $0.15 | $0.45 |
-| GLM 5 Fast | 203K | ❌ | ❌ | $0.25 | $1.10 |
-| GLM 5.1 Fast | 203K | ❌ | ❌ | $0.48 | $1.90 |
-| GLM 5.1 FP8 | 203K | ❌ | ❌ | $0.50 | $2.10 |
-| GPT-OSS 20B | 16K | ❌ | ✅ | $0.50 | $1.50 |
-| Kimi K2.5 | 262K | ✅ | ✅ | $0.35 | $1.70 |
-| Kimi K2.5 Fast | 262K | ❌ | ✅ | $0.25 | $1.25 |
-| MiniMax M2.5 | 197K | ❌ | ❌ | $0.11 | $0.95 |
-| Qwen3.5 35B A3B | 131K | ❌ | ✅ | $0.20 | $0.60 |
-| Qwen3.5 397B A17B FP8 | 262K | ❌ | ✅ | $0.35 | $1.75 |
-| Qwen3.5 397B Fast | 262K | ❌ | ✅ | $0.25 | $1.25 |
+| Model | Context | Vision | Reasoning | Thinking Format | Input $/M | Output $/M |
+|-------|---------|--------|-----------|-----------------|-----------|------------|
+| Devstral Small 2 24B | 262K | ❌ | ✅ | `qwen` | $0.15 | $0.45 |
+| GLM 5 Fast | 203K | ❌ | ❌ | — | $0.25 | $1.10 |
+| GLM 5.1 Fast | 203K | ❌ | ❌ | — | $0.48 | $1.90 |
+| GLM 5.1 FP8 | 203K | ❌ | ❌ | — | $0.50 | $2.10 |
+| GPT-OSS 20B | 16K | ❌ | ✅ | `reasoning_effort` | $0.50 | $1.50 |
+| Kimi K2.5 | 262K | ✅ | ✅ | `qwen` | $0.35 | $1.70 |
+| Kimi K2.5 Fast | 262K | ❌ | ✅ | `qwen` | $0.25 | $1.25 |
+| MiniMax M2.5 | 197K | ❌ | ❌ | — | $0.11 | $0.95 |
+| Qwen3.5 35B A3B | 131K | ❌ | ✅ | `qwen` | $0.20 | $0.60 |
+| Qwen3.5 397B A17B FP8 | 262K | ❌ | ✅ | `qwen` | $0.35 | $1.75 |
+| Qwen3.5 397B Fast | 262K | ❌ | ✅ | `qwen` | $0.25 | $1.25 |
 
 
 ## Installation
@@ -71,6 +71,16 @@ Get your API key from [neuralwatt.com](https://neuralwatt.com).
 | `NEURALWATT_API_KEY` | Yes | Your Neuralwatt API key from [neuralwatt.com](https://neuralwatt.com) |
 
 ## Configuration
+
+### Compat Settings
+
+Neuralwatt runs on vLLM, which requires specific compatibility settings for reasoning models. These are pre-configured in `models.json`:
+
+- **`supportsDeveloperRole: false`** — All models. vLLM doesn't support the `developer` role; pi sends system prompts as `system` messages instead.
+- **`thinkingFormat: "qwen"`** — Qwen, Kimi, and Devstral reasoning models. Sends `enable_thinking: true` in the request body to activate thinking mode.
+- **`supportsReasoningEffort: true`** — GPT-OSS. Sends `reasoning_effort` parameter (maps to pi's `/reasoning` command levels).
+
+### Pi Configuration
 
 Add to your pi configuration for automatic loading:
 

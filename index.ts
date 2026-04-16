@@ -41,6 +41,11 @@ interface PiModel {
   };
   contextWindow: number;
   maxTokens: number;
+  compat?: {
+    supportsDeveloperRole?: boolean;
+    supportsReasoningEffort?: boolean;
+    thinkingFormat?: "openai" | "openrouter" | "zai" | "qwen" | "qwen-chat-template";
+  };
 }
 
 // Neuralwatt model data structure from JSON
@@ -57,11 +62,16 @@ interface NeuralwattModel {
   };
   contextWindow: number;
   maxTokens: number;
+  compat?: {
+    supportsDeveloperRole?: boolean;
+    supportsReasoningEffort?: boolean;
+    thinkingFormat?: "openai" | "openrouter" | "zai" | "qwen" | "qwen-chat-template";
+  };
 }
 
 // Transform JSON model to Pi's expected format
 function transformModel(model: NeuralwattModel): PiModel {
-  return {
+  const result: PiModel = {
     id: model.id,
     name: model.name,
     reasoning: model.reasoning,
@@ -75,6 +85,13 @@ function transformModel(model: NeuralwattModel): PiModel {
     contextWindow: model.contextWindow,
     maxTokens: model.maxTokens,
   };
+
+  // Pass compat settings through if present
+  if (model.compat) {
+    result.compat = model.compat;
+  }
+
+  return result;
 }
 
 const piModels = (models as NeuralwattModel[]).map(transformModel);
