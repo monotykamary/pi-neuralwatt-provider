@@ -16,6 +16,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MODELS_API_URL = 'https://api.neuralwatt.com/v1/models';
 const MODELS_JSON_PATH = path.join(__dirname, '..', 'models.json');
 const README_PATH = path.join(__dirname, '..', 'README.md');
+const PATCH_PATH = path.join(__dirname, '..', 'patch.json');
 
 // Known reasoning models by ID pattern
 const REASONING_MODEL_PATTERNS = [
@@ -204,7 +205,7 @@ function updateReadme(models) {
   // Find and replace the model table within the Available Models section
   // Match the table header row and all subsequent table rows (lines starting with |)
   // Also capture trailing newlines to preserve spacing
-  const tableRegex = /(## Available Models\n\n)\| Model \| Context \| Vision \| Reasoning \| Input \$\/M \| Output \$\/M \|\n\|[-| ]+\|(\n\|[^\n]+\|)*\n*/;
+  const tableRegex = /(## Available Models\n\n)\| Model \|[^\n]+\|\n\|[-| ]+\|(\n\|[^\n]+\|)*\n*/;
 
   if (tableRegex.test(readme)) {
     // Use a replacer function to avoid $ being interpreted as regex group reference
@@ -246,8 +247,38 @@ async function main() {
 
     console.log(`✓ Fetched ${apiModels.length} models from API`);
 
+    // Load patch overrides
+    let patch = {};
+    try {
+      patch = JSON.parse(fs.readFileSync(PATCH_PATH, 'utf8'));
+      console.log(`✓ Loaded patch with ${Object.keys(patch).length} overrides`);
+    } catch (e) {
+      console.log('No patch.json found, skipping overrides');
+    }
+
     // Transform models
     const transformedModels = apiModels.map(transformModel);
+
+    // Apply patch overrides on top of API-derived data
+    for (const model of transformedModels) {
+      const overrides = patch[model.id];
+      if (overrides) {
+        // Deep merge compat, shallow merge everything else
+        if (overrides.compat && model.compat) {
+          model.compat = { ...model.compat, ...overrides.compat };
+          delete overrides.compat;
+        }
+        Object.assign(model, overrides);
+      }
+      // Remove thinkingFormat from non-reasoning models
+      if (!model.reasoning && model.compat?.thinkingFormat) {
+        delete model.compat.thinkingFormat;
+      }
+      // Remove empty compat leftover
+      if (model.compat && Object.keys(model.compat).length === 0) {
+        delete model.compat;
+      }
+    }
 
     // Sort models alphabetically by name
     transformedModels.sort((a, b) => {

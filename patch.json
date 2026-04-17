@@ -1,0 +1,63 @@
+{
+  "zai-org/GLM-5.1-FP8": {
+    "reasoning": true,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "MiniMaxAI/MiniMax-M2.5": {
+    "reasoning": true,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "openai/gpt-oss-20b": {
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  "Qwen/Qwen3.5-35B-A3B": {
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "Qwen/Qwen3.5-397B-A17B-FP8": {
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "moonshotai/Kimi-K2.5": {
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "mistralai/Devstral-Small-2-24B-Instruct-2512": {
+    "reasoning": false,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "glm-5-fast": {
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "glm-5.1-fast": {
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "kimi-k2.5-fast": {
+    "reasoning": false,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  "qwen3.5-397b-fast": {
+    "reasoning": false,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  }
+}

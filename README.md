@@ -13,20 +13,19 @@ A [pi](https://github.com/badlogic/pi) extension that adds [Neuralwatt](https://
 
 ## Available Models
 
-| Model | Context | Vision | Reasoning | Thinking Format | Input $/M | Output $/M |
-|-------|---------|--------|-----------|-----------------|-----------|------------|
-| Devstral Small 2 24B | 262K | ❌ | ✅ | `qwen` | $0.15 | $0.45 |
-| GLM 5 Fast | 203K | ❌ | ❌ | — | $0.25 | $1.10 |
-| GLM 5.1 Fast | 203K | ❌ | ❌ | — | $0.48 | $1.90 |
-| GLM 5.1 FP8 | 203K | ❌ | ❌ | — | $0.50 | $2.10 |
-| GPT-OSS 20B | 16K | ❌ | ✅ | `reasoning_effort` | $0.50 | $1.50 |
-| Kimi K2.5 | 262K | ✅ | ✅ | `qwen` | $0.35 | $1.70 |
-| Kimi K2.5 Fast | 262K | ❌ | ✅ | `qwen` | $0.25 | $1.25 |
-| MiniMax M2.5 | 197K | ❌ | ❌ | — | $0.11 | $0.95 |
-| Qwen3.5 35B A3B | 131K | ❌ | ✅ | `qwen` | $0.20 | $0.60 |
-| Qwen3.5 397B A17B FP8 | 262K | ❌ | ✅ | `qwen` | $0.35 | $1.75 |
-| Qwen3.5 397B Fast | 262K | ❌ | ✅ | `qwen` | $0.25 | $1.25 |
-
+| Model | Context | Vision | Reasoning | Input $/M | Output $/M |
+|-------|---------|--------|-----------|-----------|------------|
+| Devstral Small 2 24B Instruct 2512 | 262K | ❌ | ❌ | $0.15 | $0.45 |
+| Glm 5 Fast | 203K | ❌ | ❌ | $0.25 | $1.10 |
+| Glm 5.1 Fast | 203K | ❌ | ❌ | $0.48 | $1.90 |
+| GLM 5.1 FP8 | 203K | ❌ | ✅ | $0.50 | $2.10 |
+| GPT OSS 20b | 16K | ❌ | ✅ | $0.50 | $1.50 |
+| Kimi K2.5 | 262K | ✅ | ✅ | $0.35 | $1.70 |
+| Kimi K2.5 Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
+| MiniMax M2.5 | 197K | ❌ | ✅ | $0.11 | $0.95 |
+| Qwen3.5 35b A3B | 131K | ❌ | ✅ | $0.20 | $0.60 |
+| Qwen3.5 397b A17B FP8 | 262K | ❌ | ✅ | $0.35 | $1.75 |
+| Qwen3.5 397b Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
 
 ## Installation
 
