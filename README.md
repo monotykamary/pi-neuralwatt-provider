@@ -10,6 +10,7 @@ A [pi](https://github.com/badlogic/pi) extension that adds [Neuralwatt](https://
 - **Tool use** - Function calling support
 - **Streaming** - Real-time token streaming
 - **Fast variants** - Optimized "Fast" versions of popular models for quicker responses
+- **Energy reporting** - Displays energy consumption (⚡J/mWh/Wh/kWh) and actual billed cost ($) in the pi footer, tracked per-session
 
 ## Available Models
 
@@ -79,6 +80,17 @@ Neuralwatt runs on vLLM, which requires specific compatibility settings for reas
 - **`thinkingFormat: "qwen"`** — Qwen, Kimi, and Devstral reasoning models. Sends `enable_thinking: true` in the request body to activate thinking mode.
 - **`supportsReasoningEffort: true`** — GPT-OSS. Sends `reasoning_effort` parameter (maps to pi's `/reasoning` command levels).
 
+### Custom Stream Handler
+
+This extension registers a custom `streamSimple` provider (`api: "neuralwatt"`) instead of using the built-in `openai-completions` handler. This is necessary because Neuralwatt returns energy and cost data as SSE comment lines (`: energy {...}`, `: cost {...}`), which the OpenAI SDK silently discards. The custom handler:
+
+1. Uses raw `fetch` instead of the OpenAI SDK to preserve SSE comments
+2. Parses `data:` chunks normally (text, thinking, tool calls, usage)
+3. Captures `: energy` and `: cost` SSE comments for the footer
+4. Handles non-streaming responses by extracting the top-level `energy` JSON field
+
+The behavior for text streaming, thinking/reasoning, tool calls, and usage tracking is identical to pi's built-in `openai-completions` provider.
+
 ### Pi Configuration
 
 Add to your pi configuration for automatic loading:
@@ -110,6 +122,34 @@ For reasoning models, control thinking depth:
 ```
 
 Values: `none`, `low`, `medium`, `high`
+
+## Energy Reporting
+
+Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in the pi footer's status bar:
+
+```
+↑14.8k ↓1.8k $0.008  ⚡0.8mWh $0.003952                                  moonshotai/Kimi-K2.5 (main)
+MCP: 0/1 servers ◆ 82 points / 6 snapshots  ⚡0.8mWh $0.003952
+```
+
+The energy indicator (`⚡... $...`) appears in the footer status bar alongside other extension statuses like MCP and rewind. It does not replace the standard pi footer.
+
+| Segment | Meaning |
+|---------|----------|
+| `⚡0.8mWh` | Cumulative session energy consumption (auto-scaled: J → mWh → Wh → kWh) |
+| `$0.003952` | Cumulative session actual billed cost from Neuralwatt |
+
+The energy and cost data comes from Neuralwatt's SSE stream comments (`: energy` and `: cost`), which the standard OpenAI SDK discards. This extension uses a custom stream handler that parses raw SSE to capture them.
+
+Energy is measured directly from GPU hardware using NVIDIA's NVML. For concurrent requests, Neuralwatt uses token-weighted attribution to fairly calculate your share. See [Neuralwatt's energy methodology](https://portal.neuralwatt.com/docs/energy-methodology) for details.
+
+### Persistence
+
+Energy and cost data is persisted per-request as custom session entries. On session resume or tree navigation, the totals are rebuilt by replaying all events in the current branch. This means:
+
+- **Session resume** — Energy/cost totals are restored when you continue a session
+- **Branching** — Navigating to a different point in the session tree shows the correct totals for that branch
+- **Forking** — Forked sessions carry their energy history forward
 
 ## API Documentation
 
