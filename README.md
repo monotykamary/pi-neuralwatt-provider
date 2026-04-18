@@ -82,14 +82,7 @@ Neuralwatt runs on vLLM, which requires specific compatibility settings for reas
 
 ### Custom Stream Handler
 
-This extension registers a custom `streamSimple` provider (`api: "neuralwatt"`) instead of using the built-in `openai-completions` handler. This is necessary because Neuralwatt returns energy and cost data as SSE comment lines (`: energy {...}`, `: cost {...}`), which the OpenAI SDK silently discards. The custom handler:
-
-1. Uses raw `fetch` instead of the OpenAI SDK to preserve SSE comments
-2. Parses `data:` chunks normally (text, thinking, tool calls, usage)
-3. Captures `: energy` and `: cost` SSE comments for the footer
-4. Handles non-streaming responses by extracting the top-level `energy` JSON field
-
-The behavior for text streaming, thinking/reasoning, tool calls, and usage tracking is identical to pi's built-in `openai-completions` provider.
+This extension registers a custom `streamSimple` provider (`api: "neuralwatt"`) that wraps pi-ai's built-in `streamOpenAICompletions`. A temporary `globalThis.fetch` override tees the HTTP response body so the OpenAI SDK handles all standard chunk parsing (text, thinking, tool calls, usage) while the extension reads the tee for Neuralwatt's SSE comment lines (`: energy {...}`, `: cost {...}`) that the SDK discards.
 
 ### Pi Configuration
 

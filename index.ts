@@ -5,8 +5,8 @@
  * Base URL: https://api.neuralwatt.com/v1
  *
  * Neuralwatt returns energy consumption data (kWh, Joules) and request cost with every
- * API response. This extension captures that data via a custom stream handler that parses
- * SSE comments (the OpenAI SDK discards them), then displays it in the pi footer.
+ * API response. This extension captures that data via a custom stream handler that tees
+ * the HTTP response (the OpenAI SDK discards SSE comments), then displays it in the pi footer.
  *
  * Usage:
  *   # Set your API key
@@ -30,23 +30,11 @@
  * @see https://neuralwatt.com
  */
 
-import type { Context, Model, SimpleStreamOptions } from "@mariozechner/pi-ai";
-import {
-  calculateCost,
-  createAssistantMessageEventStream,
-  getEnvApiKey,
-  parseStreamingJson,
-} from "@mariozechner/pi-ai";
-import type { AssistantMessage as PiAiAssistantMessage, AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
+import { getEnvApiKey, streamOpenAICompletions } from "@mariozechner/pi-ai";
+import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import models from "./models.json" with { type: "json" };
-
-// ─── Inline: sanitize Unicode surrogates ──────────────────────────────────────
-// Not exported from @mariozechner/pi-ai main index, so we inline the one-liner.
-
-function sanitizeSurrogates(text: string): string {
-  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, "");
-}
 
 // ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
 
@@ -188,6 +176,51 @@ function formatCost(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+// ─── SSE Comment Reader ──────────────────────────────────────────────────────
+
+/**
+ * Read SSE comment lines (`: energy {...}`, `: cost {...}`) from a tee'd response body.
+ * Runs concurrently with the OpenAI SDK's consumption of the original stream.
+ */
+async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+
+        if (trimmed.startsWith(": energy ")) {
+          try {
+            const energy = JSON.parse(trimmed.slice(9));
+            pendingEnergyJoules += energy.energy_joules || 0;
+          } catch {
+            // Malformed energy comment, ignore
+          }
+        } else if (trimmed.startsWith(": cost ")) {
+          try {
+            const cost = JSON.parse(trimmed.slice(7));
+            pendingCostUsd += cost.request_cost_usd || 0;
+          } catch {
+            // Malformed cost comment, ignore
+          }
+        }
+      }
+    }
+  } catch {
+    // Tee stream may error if the main stream is aborted — that's fine
+  }
+}
+
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
 
 const BASE_URL = "https://api.neuralwatt.com/v1";
@@ -195,600 +228,64 @@ const BASE_URL = "https://api.neuralwatt.com/v1";
 /**
  * Neuralwatt's custom stream handler.
  *
- * Neuralwatt returns energy and cost data that the OpenAI SDK discards:
- * - Non-streaming: top-level `energy` and `cost` JSON fields
- * - Streaming: SSE comment lines `: energy {...}` and `: cost {...}`
- *
- * This handler uses raw fetch + manual SSE parsing to capture everything.
- * The OpenAI-completions parsing logic (chunks, choices, usage, thinking, tool_calls)
- * is based on pi-ai's built-in openai-completions.ts provider.
+ * Wraps pi-ai's built-in `streamOpenAICompletions` with a temporary `globalThis.fetch`
+ * override that tees the HTTP response body. This lets the OpenAI SDK handle all
+ * standard chunk parsing (text, thinking, tool calls, usage) while we read the
+ * tee for Neuralwatt's SSE comment lines (`: energy`, `: cost`) that the SDK discards.
  */
 function streamNeuralwatt(
-  model: Model<string>,
-  context: Context,
+  model: any,
+  context: any,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  const stream = createAssistantMessageEventStream();
+  const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
+  if (!apiKey) {
+    throw new Error(`No API key for provider: ${model.provider}`);
+  }
 
-  (async () => {
-    const apiKey = options?.apiKey || getEnvApiKey(model.provider) || "";
-    if (!apiKey) {
-      throw new Error(`No API key for provider: ${model.provider}`);
+  // Ensure the model uses openai-completions API so streamOpenAICompletions works
+  const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
+
+  // Temporarily override globalThis.fetch to tee the response body.
+  // The SDK consumes one branch; we read the other for SSE comments.
+  const originalFetch = globalThis.fetch;
+  let teeReader: Promise<void> | undefined;
+
+  globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const response = await originalFetch(input, init);
+    // Only tee streaming responses to Neuralwatt's chat completions endpoint
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (response.body && url.includes("/chat/completions")) {
+      const [bodyForSdk, bodyForEnergy] = response.body.tee();
+      teeReader = readEnergyFromTee(bodyForEnergy);
+      return new Response(bodyForSdk, { headers: response.headers, status: response.status, statusText: response.statusText });
     }
-
-    const output: PiAiAssistantMessage = {
-      role: "assistant",
-      content: [],
-      api: model.api,
-      provider: model.provider,
-      model: model.id,
-      usage: {
-        input: 0,
-        output: 0,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 0,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: "stop",
-      timestamp: Date.now(),
-    };
-
-    try {
-      // Build request payload
-      const params = buildNeuralwattParams(model, context, options);
-
-      // Make raw fetch request (not OpenAI SDK) so we can parse SSE comments
-      const url = `${model.baseUrl || BASE_URL}/chat/completions`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-          ...(model.headers || {}),
-          ...(options?.headers || {}),
-        },
-        body: JSON.stringify(params),
-        signal: options?.signal,
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`Neuralwatt API error ${response.status}: ${errorText}`);
-      }
-
-      stream.push({ type: "start", partial: output });
-
-      if (params.stream) {
-        // ── Streaming: parse SSE with comment support ──────────────────────
-        await parseStreamingResponse(response, output, stream, model);
-      } else {
-        // ── Non-streaming: parse JSON response ─────────────────────────────
-        const json = await response.json();
-        parseNonStreamingResponse(json, output, model);
-      }
-
-      // Finish current block
-      finishCurrentBlock(output, stream, null);
-
-      if (options?.signal?.aborted) {
-        throw new Error("Request was aborted");
-      }
-
-      stream.push({ type: "done", reason: output.stopReason as "stop" | "length" | "toolUse", message: output });
-      stream.end();
-    } catch (error) {
-      for (const block of output.content) {
-        delete (block as any).index;
-        delete (block as any).partialArgs;
-      }
-      output.stopReason = options?.signal?.aborted ? "aborted" : "error";
-      output.errorMessage = error instanceof Error ? error.message : String(error);
-      stream.push({ type: "error", reason: output.stopReason, error: output });
-      stream.end();
-    }
-  })();
-
-  return stream;
-}
-
-// ─── Request Building ─────────────────────────────────────────────────────────
-
-function buildNeuralwattParams(
-  model: Model<string>,
-  context: Context,
-  options?: SimpleStreamOptions,
-): Record<string, unknown> {
-  const compat = getCompat(model);
-  const messages = convertMessages(model, context, compat);
-
-  const params: Record<string, unknown> = {
-    model: model.id,
-    messages,
-    stream: true,
+    return response;
   };
 
-  if (compat.supportsUsageInStreaming !== false) {
-    params.stream_options = { include_usage: true };
-  }
-
-  if (options?.maxTokens) {
-    if (compat.maxTokensField === "max_tokens") {
-      params.max_tokens = options.maxTokens;
-    } else {
-      params.max_completion_tokens = options.maxTokens;
-    }
-  }
-
-  if (options?.temperature !== undefined) {
-    params.temperature = options.temperature;
-  }
-
-  // Tool support
-  if (context.tools && context.tools.length > 0) {
-    params.tools = context.tools.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: tool.parameters,
-        strict: false,
-      },
-    }));
-  }
-
-  if (options?.toolChoice) {
-    params.tool_choice = options.toolChoice;
-  }
-
-  // Thinking/reasoning support
-  if (compat.thinkingFormat === "qwen" && model.reasoning) {
-    params.enable_thinking = !!options?.reasoning;
-  } else if (compat.thinkingFormat === "qwen-chat-template" && model.reasoning) {
-    params.chat_template_kwargs = {
-      enable_thinking: !!options?.reasoning,
-      preserve_thinking: true,
-    };
-  } else if (options?.reasoning && model.reasoning && compat.supportsReasoningEffort) {
-    params.reasoning_effort = options.reasoning;
-  }
-
-  return params;
-}
-
-// ─── Streaming SSE Parser ─────────────────────────────────────────────────────
-
-interface CurrentBlock {
-  type: "text" | "thinking" | "toolCall";
-}
-
-async function parseStreamingResponse(
-  response: Response,
-  output: PiAiAssistantMessage,
-  stream: AssistantMessageEventStream,
-  model: Model<string>,
-): Promise<void> {
-  let currentBlockType: CurrentBlock["type"] | null = null;
-  const blocks = output.content;
-  const blockIndex = () => blocks.length - 1;
-
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("No response body");
-
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    // Keep the last incomplete line in the buffer
-    buffer = lines.pop() || "";
-
-    for (const line of lines) {
-      const trimmed = line.trim();
-
-      // ── SSE comment: energy data ────────────────────────────────────────
-      if (trimmed.startsWith(": energy ")) {
-        try {
-          const energy = JSON.parse(trimmed.slice(9));
-          pendingEnergyJoules += energy.energy_joules || 0;
-        } catch {
-          // Malformed energy comment, ignore
-        }
-        continue;
-      }
-
-      // ── SSE comment: cost data ──────────────────────────────────────────
-      if (trimmed.startsWith(": cost ")) {
-        try {
-          const cost = JSON.parse(trimmed.slice(7));
-          pendingCostUsd += cost.request_cost_usd || 0;
-        } catch {
-          // Malformed cost comment, ignore
-        }
-        continue;
-      }
-
-      // ── SSE comment (other) — ignore ────────────────────────────────────
-      if (trimmed.startsWith(":")) {
-        continue;
-      }
-
-      // ── SSE data event ──────────────────────────────────────────────────
-      if (!trimmed.startsWith("data: ")) continue;
-      const data = trimmed.slice(6);
-      if (data === "[DONE]") continue;
-
-      let chunk: any;
-      try {
-        chunk = JSON.parse(data);
-      } catch {
-        continue;
-      }
-
-      if (!chunk || typeof chunk !== "object") continue;
-
-      // Capture response ID
-      output.responseId ||= chunk.id;
-
-      // Usage (sometimes arrives in a chunk with empty choices)
-      if (chunk.usage) {
-        output.usage = parseChunkUsage(chunk.usage, model);
-      }
-
-      const choice = Array.isArray(chunk.choices) ? chunk.choices[0] : undefined;
-      if (!choice) continue;
-
-      // Fallback usage in choice (Moonshot-style)
-      if (!chunk.usage && choice.usage) {
-        output.usage = parseChunkUsage(choice.usage, model);
-      }
-
-      // Finish reason
-      if (choice.finish_reason) {
-        const result = mapStopReason(choice.finish_reason);
-        output.stopReason = result.stopReason;
-        if (result.errorMessage) output.errorMessage = result.errorMessage;
-      }
-
-      if (!choice.delta) continue;
-
-      // ── Text content ────────────────────────────────────────────────────
-      if (choice.delta.content != null && choice.delta.content.length > 0) {
-        if (currentBlockType !== "text") {
-          finishCurrentBlock(output, stream, currentBlockType);
-          currentBlockType = "text";
-          blocks.push({ type: "text", text: "" });
-          stream.push({ type: "text_start", contentIndex: blockIndex(), partial: output });
-        }
-        const block = blocks[blocks.length - 1];
-        if (block.type === "text") {
-          block.text += choice.delta.content;
-          stream.push({ type: "text_delta", contentIndex: blockIndex(), delta: choice.delta.content, partial: output });
-        }
-      }
-
-      // ── Thinking/reasoning content ───────────────────────────────────────
-      const reasoningFields = ["reasoning_content", "reasoning", "reasoning_text"];
-      let foundReasoningField: string | null = null;
-      for (const field of reasoningFields) {
-        if (choice.delta[field] != null && choice.delta[field].length > 0) {
-          foundReasoningField = field;
-          break;
-        }
-      }
-      if (foundReasoningField) {
-        if (currentBlockType !== "thinking") {
-          finishCurrentBlock(output, stream, currentBlockType);
-          currentBlockType = "thinking";
-          blocks.push({ type: "thinking", thinking: "", thinkingSignature: foundReasoningField });
-          stream.push({ type: "thinking_start", contentIndex: blockIndex(), partial: output });
-        }
-        const block = blocks[blocks.length - 1];
-        if (block.type === "thinking") {
-          const delta = choice.delta[foundReasoningField];
-          block.thinking += delta;
-          stream.push({ type: "thinking_delta", contentIndex: blockIndex(), delta, partial: output });
-        }
-      }
-
-      // ── Tool calls ──────────────────────────────────────────────────────
-      if (choice.delta?.tool_calls) {
-        for (const toolCall of choice.delta.tool_calls) {
-          const lastBlock = blocks[blocks.length - 1];
-          const isNewToolCall = currentBlockType !== "toolCall" || (toolCall.id && lastBlock?.type === "toolCall" && (lastBlock as any).id !== toolCall.id);
-
-          if (isNewToolCall) {
-            finishCurrentBlock(output, stream, currentBlockType);
-            currentBlockType = "toolCall";
-            blocks.push({
-              type: "toolCall",
-              id: toolCall.id || "",
-              name: toolCall.function?.name || "",
-              arguments: {},
-              partialArgs: "",
-            });
-            stream.push({ type: "toolcall_start", contentIndex: blockIndex(), partial: output });
-          }
-          const block = blocks[blocks.length - 1];
-          if (block.type === "toolCall") {
-            if (toolCall.id) block.id = toolCall.id;
-            if (toolCall.function?.name) block.name = toolCall.function.name;
-            let delta = "";
-            if (toolCall.function?.arguments) {
-              delta = toolCall.function.arguments;
-              (block as any).partialArgs += toolCall.function.arguments;
-              block.arguments = parseStreamingJson((block as any).partialArgs);
-            }
-            stream.push({ type: "toolcall_delta", contentIndex: blockIndex(), delta, partial: output });
-          }
-        }
-      }
-
-      // ── Reasoning details (encrypted thinking signatures) ───────────────
-      const reasoningDetails = choice.delta.reasoning_details;
-      if (reasoningDetails && Array.isArray(reasoningDetails)) {
-        for (const detail of reasoningDetails) {
-          if (detail.type === "reasoning.encrypted" && detail.id && detail.data) {
-            const matchingBlock = blocks.find((b: any) => b.type === "toolCall" && b.id === detail.id);
-            if (matchingBlock && matchingBlock.type === "toolCall") {
-              matchingBlock.thoughtSignature = JSON.stringify(detail);
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-// ─── Non-Streaming Response Parser ────────────────────────────────────────────
-
-function parseNonStreamingResponse(json: any, output: PiAiAssistantMessage, model: Model<string>): void {
-  // Extract energy data from top-level field
-  if (json.energy) {
-    pendingEnergyJoules += json.energy.energy_joules || 0;
-  }
-
-  // Note: Neuralwatt non-streaming doesn't currently return a `cost` top-level
-  // field, but handle it if it appears in the future
-  if (json.cost) {
-    pendingCostUsd += json.cost.request_cost_usd || 0;
-  }
-
-  // Standard OpenAI response parsing
-  output.responseId = json.id;
-  output.model = json.model || output.model;
-
-  if (json.usage) {
-    const usage = parseChunkUsage(json.usage, model);
-    output.usage = usage;
-  }
-
-  const choice = json.choices?.[0];
-  if (!choice) return;
-
-  output.stopReason = mapStopReason(choice.finish_reason).stopReason;
-
-  const message = choice.message;
-  if (!message) return;
-
-  // Text content
-  if (message.content) {
-    output.content.push({ type: "text", text: message.content });
-  }
-
-  // Reasoning/thinking
-  const reasoningFields = ["reasoning_content", "reasoning", "reasoning_text"];
-  for (const field of reasoningFields) {
-    if (message[field]) {
-      output.content.push({ type: "thinking", thinking: message[field], thinkingSignature: field });
-      break;
-    }
-  }
-
-  // Tool calls
-  if (message.tool_calls) {
-    for (const tc of message.tool_calls) {
-      output.content.push({
-        type: "toolCall",
-        id: tc.id || "",
-        name: tc.function?.name || "",
-        arguments: typeof tc.function?.arguments === "string"
-          ? JSON.parse(tc.function.arguments)
-          : tc.function?.arguments || {},
-      });
-    }
-  }
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Finish the current streaming block (text, thinking, or toolCall).
- */
-function finishCurrentBlock(
-  output: PiAiAssistantMessage,
-  stream: AssistantMessageEventStream,
-  blockType: CurrentBlock["type"] | null,
-): void {
-  if (!blockType) return;
-  const blocks = output.content;
-  const idx = blocks.length - 1;
-  if (idx < 0) return;
-  const b = blocks[idx];
-  if (!b) return;
-
-  if (blockType === "text" && b.type === "text") {
-    stream.push({ type: "text_end", contentIndex: idx, content: b.text, partial: output });
-  } else if (blockType === "thinking" && b.type === "thinking") {
-    stream.push({ type: "thinking_end", contentIndex: idx, content: b.thinking, partial: output });
-  } else if (blockType === "toolCall" && b.type === "toolCall") {
-    b.arguments = parseStreamingJson((b as any).partialArgs);
-    delete (b as any).partialArgs;
-    stream.push({
-      type: "toolcall_end",
-      contentIndex: idx,
-      toolCall: { type: "toolCall" as const, id: b.id, name: b.name, arguments: b.arguments },
-      partial: output,
+  try {
+    // Delegate all chunk parsing to the built-in handler
+    const stream = streamOpenAICompletions(neuralwattModel, context, {
+      ...options,
+      apiKey,
     });
-  }
-}
 
-/**
- * Parse usage from a streaming chunk and calculate cost using the model's pricing.
- */
-function parseChunkUsage(
-  rawUsage: any,
-  model: Model<string>,
-): PiAiAssistantMessage["usage"] {
-  const promptTokens = rawUsage.prompt_tokens || 0;
-  const reportedCachedTokens = rawUsage.prompt_tokens_details?.cached_tokens || 0;
-  const cacheWriteTokens = rawUsage.prompt_tokens_details?.cache_write_tokens || 0;
-  const reasoningTokens = rawUsage.completion_tokens_details?.reasoning_tokens || 0;
-
-  const cacheReadTokens = cacheWriteTokens > 0
-    ? Math.max(0, reportedCachedTokens - cacheWriteTokens)
-    : reportedCachedTokens;
-  const input = Math.max(0, promptTokens - cacheReadTokens - cacheWriteTokens);
-  const outputTokens = (rawUsage.completion_tokens || 0) + reasoningTokens;
-
-  const usage: PiAiAssistantMessage["usage"] = {
-    input,
-    output: outputTokens,
-    cacheRead: cacheReadTokens,
-    cacheWrite: cacheWriteTokens,
-    totalTokens: input + outputTokens + cacheReadTokens + cacheWriteTokens,
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-  };
-
-  calculateCost(model, usage);
-  return usage;
-}
-
-function mapStopReason(reason: string | null): { stopReason: PiAiAssistantMessage["stopReason"]; errorMessage?: string } {
-  if (reason === null) return { stopReason: "stop" };
-  switch (reason) {
-    case "stop":
-    case "end":
-      return { stopReason: "stop" };
-    case "length":
-      return { stopReason: "length" };
-    case "function_call":
-    case "tool_calls":
-      return { stopReason: "toolUse" };
-    case "content_filter":
-      return { stopReason: "error", errorMessage: "Provider finish_reason: content_filter" };
-    case "network_error":
-      return { stopReason: "error", errorMessage: "Provider finish_reason: network_error" };
-    default:
-      return { stopReason: "error", errorMessage: `Provider finish_reason: ${reason}` };
-  }
-}
-
-// ─── Compat Detection ─────────────────────────────────────────────────────────
-
-interface NeuralwattCompat {
-  supportsDeveloperRole: boolean;
-  supportsReasoningEffort: boolean;
-  supportsUsageInStreaming: boolean;
-  maxTokensField: "max_completion_tokens" | "max_tokens";
-  thinkingFormat: string;
-}
-
-function getCompat(model: Model<string>): NeuralwattCompat {
-  const compat = (model as any).compat;
-  return {
-    supportsDeveloperRole: compat?.supportsDeveloperRole ?? false,
-    supportsReasoningEffort: compat?.supportsReasoningEffort ?? false,
-    supportsUsageInStreaming: compat?.supportsUsageInStreaming ?? true,
-    maxTokensField: compat?.maxTokensField ?? "max_completion_tokens",
-    thinkingFormat: compat?.thinkingFormat ?? "qwen",
-  };
-}
-
-// ─── Message Conversion ──────────────────────────────────────────────────────
-
-function convertMessages(model: Model<string>, context: Context, compat: NeuralwattCompat): any[] {
-  const params: any[] = [];
-
-  // System prompt
-  if (context.systemPrompt) {
-    const role = compat.supportsDeveloperRole ? "developer" : "system";
-    params.push({ role, content: sanitizeSurrogates(context.systemPrompt) });
-  }
-
-  for (const msg of context.messages) {
-    if (msg.role === "user") {
-      if (typeof msg.content === "string") {
-        params.push({ role: "user", content: sanitizeSurrogates(msg.content) });
-      } else if (Array.isArray(msg.content)) {
-        const content = msg.content.map((item: any) => {
-          if (item.type === "text") {
-            return { type: "text", text: sanitizeSurrogates(item.text) };
-          } else if (item.type === "image") {
-            return { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
-          }
-          return item;
-        });
-        const filteredContent = !model.input.includes("image")
-          ? content.filter((c: any) => c.type !== "image_url")
-          : content;
-        if (filteredContent.length > 0) {
-          params.push({ role: "user", content: filteredContent });
-        }
+    // When the stream ends, restore fetch and wait for our tee reader to finish
+    const originalEnd = stream.end.bind(stream);
+    stream.end = (result?: any) => {
+      globalThis.fetch = originalFetch;
+      // Don't block the stream end on our tee reader — it should finish around the same time
+      if (teeReader) {
+        teeReader.catch(() => {});
       }
-    } else if (msg.role === "assistant") {
-      const assistantMsg: any = { role: "assistant", content: null };
+      originalEnd(result);
+    };
 
-      const textBlocks = msg.content.filter((b: any) => b.type === "text");
-      const nonEmptyTextBlocks = textBlocks.filter((b: any) => b.text && b.text.trim().length > 0);
-      if (nonEmptyTextBlocks.length > 0) {
-        assistantMsg.content = nonEmptyTextBlocks.map((b: any) => sanitizeSurrogates(b.text)).join("");
-      }
-
-      // Thinking blocks
-      const thinkingBlocks = msg.content.filter((b: any) => b.type === "thinking");
-      const nonEmptyThinkingBlocks = thinkingBlocks.filter((b: any) => b.thinking && b.thinking.trim().length > 0);
-      if (nonEmptyThinkingBlocks.length > 0) {
-        const signature = nonEmptyThinkingBlocks[0].thinkingSignature;
-        if (signature && signature.length > 0) {
-          assistantMsg[signature] = nonEmptyThinkingBlocks.map((b: any) => b.thinking).join("\n");
-        }
-      }
-
-      // Tool calls
-      const toolCalls = msg.content.filter((b: any) => b.type === "toolCall");
-      if (toolCalls.length > 0) {
-        assistantMsg.tool_calls = toolCalls.map((tc: any) => ({
-          id: tc.id,
-          type: "function",
-          function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
-        }));
-      }
-
-      const hasContent = assistantMsg.content !== null && assistantMsg.content !== undefined &&
-        (typeof assistantMsg.content === "string" ? assistantMsg.content.length > 0 : (Array.isArray(assistantMsg.content) ? assistantMsg.content.length > 0 : false));
-      if (!hasContent && !assistantMsg.tool_calls) continue;
-
-      params.push(assistantMsg);
-    } else if (msg.role === "toolResult") {
-      const toolMsg = msg as any;
-      const textResult = toolMsg.content
-        ?.filter((c: any) => c.type === "text")
-        ?.map((c: any) => c.text)
-        ?.join("\n") || "";
-      params.push({
-        role: "tool",
-        content: sanitizeSurrogates(textResult || "(no text)"),
-        tool_call_id: toolMsg.toolCallId,
-      });
-    }
+    return stream;
+  } catch (error) {
+    globalThis.fetch = originalFetch;
+    throw error;
   }
-
-  return params;
 }
 
 // ─── Extension Entry Point ────────────────────────────────────────────────────
