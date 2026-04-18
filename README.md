@@ -24,9 +24,11 @@ A [pi](https://github.com/badlogic/pi) extension that adds [Neuralwatt](https://
 | Kimi K2.5 | 262K | ✅ | ✅ | $0.35 | $1.70 |
 | Kimi K2.5 Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
 | MiniMax M2.5 | 197K | ❌ | ✅ | $0.11 | $0.95 |
-| Qwen3.5 35b A3B | 131K | ❌ | ✅ | $0.20 | $0.60 |
+| Qwen3.5 35b Fast | 131K | ❌ | ✅ | $0.25 | $1.25 |
 | Qwen3.5 397b A17B FP8 | 262K | ❌ | ✅ | $0.35 | $1.75 |
 | Qwen3.5 397b Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
+| Qwen3.6 35b A3B | 131K | ❌ | ❌ | $0.30 | $1.00 |
+| Qwen3.6 35b Fast | 131K | ❌ | ❌ | $0.25 | $1.25 |
 
 ## Installation
 
