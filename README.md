@@ -1,6 +1,6 @@
 # pi-neuralwatt-provider
 
-A [pi](https://github.com/badlogic/pi) extension that adds [Neuralwatt](https://neuralwatt.com) as a custom model provider.
+A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](https://neuralwatt.com) as a custom model provider.
 
 ## Features
 
