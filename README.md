@@ -120,14 +120,14 @@ Values: `none`, `low`, `medium`, `high`
 
 ## Energy Reporting
 
-Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in the pi footer's status bar:
+Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in the pi footer:
 
 ```
-↑14.8k ↓1.8k $0.008  ⚡0.8mWh $0.003952                                  moonshotai/Kimi-K2.5 (main)
-MCP: 0/1 servers ◆ 82 points / 6 snapshots  ⚡0.8mWh $0.003952
+↑11k ↓1.5k R16k $0.006  4.6%/262k (auto)                             (neuralwatt) moonshotai/Kimi-K2.6
+⚡1.4mWh $0.006915 ◆ 5 points / 1 snapshots
 ```
 
-The energy indicator (`⚡... $...`) appears in the footer status bar alongside other extension statuses like MCP and rewind. It does not replace the standard pi footer.
+The energy indicator (`⚡... $...`) appears on the bottom status line alongside other extension statuses like `◆ snapshots`. It does not replace the standard pi footer.
 
 | Segment | Meaning |
 |---------|----------|
