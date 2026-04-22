@@ -96,11 +96,12 @@
     }
   },
   {
-    "id": "moonshotai/Kimi-K2.6",
-    "name": "Neuralwatt: Kimi K2.6",
-    "reasoning": false,
+    "id": "moonshotai/Kimi-K2.5",
+    "name": "Neuralwatt: Kimi K2.5",
+    "reasoning": true,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
       "input": 0.35,
@@ -109,11 +110,14 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
-    "id": "kimi-k2.6-fast",
-    "name": "Neuralwatt: Kimi K2.6 Fast",
+    "id": "kimi-k2.5-fast",
+    "name": "Neuralwatt: Kimi K2.5 Fast",
     "reasoning": false,
     "input": [
       "text"
@@ -125,7 +129,10 @@
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "MiniMaxAI/MiniMax-M2.5",
