@@ -4,7 +4,15 @@
  *
  * Fetches models from https://api.neuralwatt.com/v1/models and updates:
  * - models.json: Provider model definitions
+ * - custom-models.json: Exclusive/hidden/preview models not in the API
  * - README.md: Model table in the Available Models section
+ *
+ * Data flow:
+ *   models.json         → auto-generated from Neuralwatt API (model discovery)
+ *   patch.json          → manual overrides (pricing, reasoning, limits, etc.)
+ *   custom-models.json  → exclusive/hidden/preview models not in the API
+ *
+ * Merge order: models.json → apply patch.json → merge custom-models.json
  */
 
 import fs from 'fs';
@@ -15,12 +23,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const MODELS_API_URL = 'https://api.neuralwatt.com/v1/models';
 const MODELS_JSON_PATH = path.join(__dirname, '..', 'models.json');
+const CUSTOM_MODELS_JSON_PATH = path.join(__dirname, '..', 'custom-models.json');
 const README_PATH = path.join(__dirname, '..', 'README.md');
 const PATCH_PATH = path.join(__dirname, '..', 'patch.json');
 
 // Known reasoning models by ID pattern
 const REASONING_MODEL_PATTERNS = [
-  /kimi-k2\.5/i,
+  /kimi-k2\.[56]/i,
   /qwen3\.5/i,
   /gpt-oss/i,
   /devstral/i,
@@ -29,11 +38,13 @@ const REASONING_MODEL_PATTERNS = [
 // Models known to support vision (image input) - exact IDs only
 const VISION_MODEL_IDS = [
   'moonshotai/Kimi-K2.5',
+  'moonshotai/Kimi-K2.6',
 ];
 
 // Models that explicitly do NOT have vision despite similar names
 const NO_VISION_MODEL_IDS = [
   'kimi-k2.5-fast',
+  'kimi-k2.6-fast',
 ];
 
 /**
@@ -85,7 +96,7 @@ function generateDisplayName(modelId) {
   // Special cases for better naming
   displayName = displayName
     .replace(/GLM 5\.1 FP8/i, 'GLM 5.1 FP8')
-    .replace(/Kimi K2\.5/i, 'Kimi K2.5')
+    .replace(/Kimi K2\.[56]/i, (m) => m) // preserve K2.5, K2.6
     .replace(/Qwen3\.5/i, 'Qwen3.5')
     .replace(/MiniMax M2\.5/i, 'MiniMax M2.5')
     .replace(/Devstral Small 2 24B/i, 'Devstral Small 2 24B');
@@ -94,44 +105,13 @@ function generateDisplayName(modelId) {
 }
 
 /**
- * Estimate pricing based on model characteristics
- * (Neuralwatt API doesn't provide pricing, use estimated values)
- */
-function estimatePricing(modelId) {
-  const lowerId = modelId.toLowerCase();
-
-  // Fast models are cheaper
-  if (lowerId.includes('fast')) {
-    if (lowerId.includes('kimi')) return { input: 0.25, output: 1.25 };
-    if (lowerId.includes('qwen')) return { input: 0.25, output: 1.25 };
-    if (lowerId.includes('glm-5.1')) return { input: 0.48, output: 1.90 };
-    if (lowerId.includes('glm-5')) return { input: 0.25, output: 1.10 };
-    return { input: 0.30, output: 1.00 };
-  }
-
-  // Standard models
-  if (lowerId.includes('glm-5.1')) return { input: 0.50, output: 2.10 };
-  if (lowerId.includes('glm-5')) return { input: 0.48, output: 1.90 };
-  if (lowerId.includes('kimi')) return { input: 0.35, output: 1.70 };
-  if (lowerId.includes('minimax')) return { input: 0.11, output: 0.95 };
-  if (lowerId.includes('gpt-oss')) return { input: 0.50, output: 1.50 };
-  if (lowerId.includes('devstral')) return { input: 0.15, output: 0.45 };
-  if (lowerId.includes('qwen3.5-397b')) return { input: 0.35, output: 1.75 };
-  if (lowerId.includes('qwen3.5-35b')) return { input: 0.20, output: 0.60 };
-  if (lowerId.includes('qwen')) return { input: 0.30, output: 1.00 };
-
-  // Default pricing
-  return { input: 0.50, output: 1.50 };
-}
-
-/**
- * Transform API model to local format
+ * Transform API model to local format.
+ * Pricing comes from patch.json, not from the API.
  */
 function transformModel(apiModel) {
   const modelId = apiModel.id;
   const hasReasoning = isReasoningModel(modelId);
   const hasVision = isVisionModel(modelId);
-  const pricing = estimatePricing(modelId);
 
   // Determine input types
   const inputTypes = ['text'];
@@ -149,8 +129,8 @@ function transformModel(apiModel) {
     reasoning: hasReasoning,
     input: inputTypes,
     cost: {
-      input: pricing.input,
-      output: pricing.output,
+      input: 0,
+      output: 0,
       cacheRead: 0,
       cacheWrite: 0,
     },
@@ -259,14 +239,25 @@ async function main() {
     // Transform models
     const transformedModels = apiModels.map(transformModel);
 
+    // Log new models missing from patch.json (they'll have zero pricing)
+    for (const model of transformedModels) {
+      if (!patch[model.id]) {
+        console.log(`  🆕 New model: ${model.id} (${model.name}) — add to patch.json for pricing/overrides`);
+      }
+    }
+
     // Apply patch overrides on top of API-derived data
     for (const model of transformedModels) {
       const overrides = patch[model.id];
       if (overrides) {
-        // Deep merge compat, shallow merge everything else
+        // Deep merge compat and cost, shallow merge everything else
         if (overrides.compat && model.compat) {
           model.compat = { ...model.compat, ...overrides.compat };
           delete overrides.compat;
+        }
+        if (overrides.cost) {
+          model.cost = { ...model.cost, ...overrides.cost };
+          delete overrides.cost;
         }
         Object.assign(model, overrides);
       }
@@ -300,14 +291,68 @@ async function main() {
     fs.writeFileSync(MODELS_JSON_PATH, JSON.stringify(cleanModels, null, 2) + '\n');
     console.log('✓ Updated models.json');
 
-    // Update README.md
-    updateReadme(transformedModels);
+    // ── Load and merge custom models ──────────────────────────────────
+    let customModels = [];
+    try {
+      customModels = JSON.parse(fs.readFileSync(CUSTOM_MODELS_JSON_PATH, 'utf8'));
+      console.log(`✓ Loaded ${customModels.length} custom model(s) from custom-models.json`);
+    } catch (e) {
+      console.log('No custom-models.json found, skipping custom models');
+    }
+
+    // Clean up custom models that now appear in the upstream API
+    const upstreamIds = new Set(transformedModels.map(m => m.id));
+    const duplicates = customModels.filter(m => upstreamIds.has(m.id));
+    if (duplicates.length > 0) {
+      console.log(`\nFound ${duplicates.length} custom model(s) now available upstream:`);
+      for (const dup of duplicates) {
+        console.log(`  - ${dup.id} (${dup.name})`);
+      }
+      customModels = customModels.filter(m => !upstreamIds.has(m.id));
+      fs.writeFileSync(CUSTOM_MODELS_JSON_PATH, JSON.stringify(customModels, null, 2) + '\n');
+      console.log(`✓ Removed ${duplicates.length} duplicate(s) from custom-models.json`);
+    }
+
+    // Build merged list: upstream + custom (custom takes precedence on overlap)
+    const mergedMap = new Map();
+    for (const model of transformedModels) {
+      mergedMap.set(model.id, model);
+    }
+    // Apply patch overrides on custom models too
+    for (const model of customModels) {
+      const overrides = patch[model.id];
+      if (overrides) {
+        if (overrides.compat && model.compat) {
+          model.compat = { ...model.compat, ...overrides.compat };
+          delete overrides.compat;
+        }
+        if (overrides.cost) {
+          model.cost = { ...model.cost, ...overrides.cost };
+          delete overrides.cost;
+        }
+        Object.assign(model, overrides);
+        if (!model.reasoning && model.compat?.thinkingFormat) {
+          delete model.compat.thinkingFormat;
+        }
+        if (model.compat && Object.keys(model.compat).length === 0) {
+          delete model.compat;
+        }
+      }
+      mergedMap.set(model.id, model);
+    }
+    const allModels = Array.from(mergedMap.values());
+    console.log(
+      `Total: ${allModels.length} models (${transformedModels.length} upstream + ${customModels.length} custom)`
+    );
+
+    // Update README.md with merged model list
+    updateReadme(allModels);
 
     // Summary
     console.log('\n--- Summary ---');
-    console.log(`Total models: ${transformedModels.length}`);
-    console.log(`Reasoning models: ${transformedModels.filter(m => m.reasoning).length}`);
-    console.log(`Vision models: ${transformedModels.filter(m => m.input.includes('image')).length}`);
+    console.log(`Total models: ${allModels.length}`);
+    console.log(`Reasoning models: ${allModels.filter(m => m.reasoning).length}`);
+    console.log(`Vision models: ${allModels.filter(m => m.input.includes('image')).length}`);
 
     const newIds = new Set(transformedModels.map(m => m.id));
     const oldIds = new Set(existingModels.map(m => m.id));

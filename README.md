@@ -29,6 +29,8 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 | Qwen3.5 397b Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
 | Qwen3.6 35b A3B | 131K | ❌ | ❌ | $0.30 | $1.00 |
 | Qwen3.6 35b Fast | 131K | ❌ | ❌ | $0.25 | $1.25 |
+| Kimi K2.6 | 262K | ✅ | ✅ | $0.95 | $4.00 |
+| Kimi K2.6 Fast | 262K | ❌ | ❌ | $0.60 | $3.00 |
 
 ## Installation
 

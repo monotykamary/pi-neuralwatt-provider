@@ -15,7 +15,13 @@
  *   # Run pi with the extension
  *   pi -e /path/to/pi-neuralwatt-provider
  *
- * Then use /model to select from available models like Kimi K2.5, GLM 5, GLM 5.1,
+ * Data flow:
+ *   models.json         → auto-generated from Neuralwatt API (model discovery)
+ *   custom-models.json  → exclusive/hidden/preview models not in the API
+ *
+ * Merge order: models.json → merge custom-models.json → transform to pi format
+ *
+ * Then use /model to select from available models like Kimi K2.5, Kimi K2.6, GLM 5, GLM 5.1,
  * Qwen3.5, GPT-OSS 20B, Devstral Small 2, and MiniMax M2.5.
  *
  * Neuralwatt Features:
@@ -35,6 +41,7 @@ import { getEnvApiKey, streamOpenAICompletions } from "@mariozechner/pi-ai";
 import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import models from "./models.json" with { type: "json" };
+import customModels from "./custom-models.json" with { type: "json" };
 
 // ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
 
@@ -120,7 +127,34 @@ interface NeuralwattModel {
   };
 }
 
-const piModels = (models as NeuralwattModel[]).map((model) => {
+/**
+ * Build the model list: regular models → merge custom models → transform to pi format.
+ * Custom models (custom-models.json) take precedence over regular models with the same id,
+ * and can also add models not present in the API (e.g., exclusive/preview models).
+ */
+function buildModelList(
+  regular: NeuralwattModel[],
+  custom: NeuralwattModel[],
+): NeuralwattModel[] {
+  const modelMap = new Map<string, NeuralwattModel>();
+
+  // 1. Add regular models (from API)
+  for (const model of regular) {
+    modelMap.set(model.id, model);
+  }
+
+  // 2. Add/override with custom models (exclusive, hidden, preview models)
+  for (const model of custom) {
+    modelMap.set(model.id, model);
+  }
+
+  return Array.from(modelMap.values());
+}
+
+const piModels = buildModelList(
+  models as NeuralwattModel[],
+  customModels as NeuralwattModel[],
+).map((model) => {
   const result: any = {
     id: model.id,
     name: model.name,
