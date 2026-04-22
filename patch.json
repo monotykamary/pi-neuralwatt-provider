@@ -62,11 +62,17 @@
     },
     "compat": {
       "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
     }
   },
   "moonshotai/Kimi-K2.6": {
     "compat": {
       "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 4
     }
   },
   "kimi-k2.6-fast": {
