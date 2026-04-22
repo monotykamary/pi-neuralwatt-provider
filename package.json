@@ -9,10 +9,11 @@
     "build": "echo 'nothing to build'",
     "check": "echo 'nothing to check'",
     "lint:dead": "knip --no-gitignore",
-    "test": "echo 'No formal test runner yet — run individual files in tests/'",
-    "test:image-limit": "node tests/test-image-limit.mjs",
-    "test:image-limit-stream": "node tests/test-image-limit-stream.mjs",
-    "test:transform": "node tests/test-transform.mjs"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "probe:image-limit": "node scripts/test-image-limit.mjs",
+    "probe:image-limit-stream": "node scripts/test-image-limit-stream.mjs",
+    "probe:vision-models": "node scripts/probe-vision-models.mjs"
   },
   "keywords": [
     "pi",
@@ -32,7 +33,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "knip": "^6.6.1"
+    "knip": "^6.6.1",
+    "vitest": "^3.0.0"
   },
   "pi": {
     "extensions": [
