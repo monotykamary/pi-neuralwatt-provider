@@ -42,6 +42,7 @@ import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import models from "./models.json" with { type: "json" };
 import customModels from "./custom-models.json" with { type: "json" };
+import patches from "./patch.json" with { type: "json" };
 
 // ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
 
@@ -125,16 +126,21 @@ interface NeuralwattModel {
     supportsReasoningEffort?: boolean;
     thinkingFormat?: "openai" | "openrouter" | "zai" | "qwen" | "qwen-chat-template";
   };
+  vision?: {
+    maxImagesPerRequest?: number;
+  };
 }
 
 /**
- * Build the model list: regular models → merge custom models → transform to pi format.
+ * Build the model list: regular models → merge custom models → apply patches → transform to pi format.
  * Custom models (custom-models.json) take precedence over regular models with the same id,
  * and can also add models not present in the API (e.g., exclusive/preview models).
+ * Patches (patch.json) apply non-destructive overrides (like vision limits).
  */
 function buildModelList(
   regular: NeuralwattModel[],
   custom: NeuralwattModel[],
+  patchList: Record<string, any> = {},
 ): NeuralwattModel[] {
   const modelMap = new Map<string, NeuralwattModel>();
 
@@ -148,12 +154,21 @@ function buildModelList(
     modelMap.set(model.id, model);
   }
 
+  // 3. Apply patch overrides
+  for (const [id, patch] of Object.entries(patchList)) {
+    const existing = modelMap.get(id);
+    if (existing) {
+      modelMap.set(id, { ...existing, ...patch });
+    }
+  }
+
   return Array.from(modelMap.values());
 }
 
 const piModels = buildModelList(
   models as NeuralwattModel[],
   customModels as NeuralwattModel[],
+  patches as any[],
 ).map((model) => {
   const result: any = {
     id: model.id,
@@ -171,6 +186,9 @@ const piModels = buildModelList(
   };
   if (model.compat) {
     result.compat = model.compat;
+  }
+  if (model.vision) {
+    result.vision = model.vision;
   }
   return result;
 });
@@ -255,6 +273,66 @@ async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void
   }
 }
 
+// ─── Vision Image-Limit Transform ─────────────────────────────────────────────
+
+/**
+ * Count image blocks across all messages in a context and, if over the model's
+ * per-request limit, drop the oldest images (FIFO).  Keeps text blocks intact.
+ * If a message becomes empty after dropping images, a placeholder text is inserted
+ * so the API still receives valid content.
+ */
+function transformContextForImageLimit(
+  context: any,
+  maxImages: number | undefined,
+): any {
+  if (maxImages === undefined || maxImages === null || !Array.isArray(context?.messages)) return context;
+
+  type ImageRef = { msgIndex: number; blockIndex: number };
+  const images: ImageRef[] = [];
+
+  for (let m = 0; m < context.messages.length; m++) {
+    const msg = context.messages[m];
+    if (!msg?.content) continue;
+    const content = msg.content;
+    if (typeof content === "string") continue;
+    for (let c = 0; c < content.length; c++) {
+      if (content[c]?.type === "image") {
+        images.push({ msgIndex: m, blockIndex: c });
+      }
+    }
+  }
+
+  if (images.length <= maxImages) return context;
+
+  const toRemove = images.length - maxImages;
+  const removedIndices = new Set<string>();
+  for (let i = 0; i < toRemove; i++) {
+    const { msgIndex, blockIndex } = images[i];
+    removedIndices.add(`${msgIndex},${blockIndex}`);
+  }
+
+  const newMessages = context.messages.map((msg: any, msgIndex: number) => {
+    if (!msg?.content) return msg;
+    const content = msg.content;
+    if (typeof content === "string") return msg;
+
+    const newContent = content.filter((_block: any, blockIndex: number) => {
+      return !removedIndices.has(`${msgIndex},${blockIndex}`);
+    });
+
+    if (newContent.length === content.length) return msg;
+
+    const hadImages = content.some((block: any) => block?.type === "image");
+    if (hadImages && newContent.length === 0) {
+      newContent.push({ type: "text", text: "[image removed]" });
+    }
+
+    return { ...msg, content: newContent };
+  });
+
+  return { ...context, messages: newMessages };
+}
+
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
 
 const BASE_URL = "https://api.neuralwatt.com/v1";
@@ -276,6 +354,10 @@ function streamNeuralwatt(
   if (!apiKey) {
     throw new Error(`No API key for provider: ${model.provider}`);
   }
+
+  // Apply per-model image limit by dropping oldest images (FIFO)
+  const maxImages = model.vision?.maxImagesPerRequest as number | undefined;
+  const transformedContext = transformContextForImageLimit(context, maxImages);
 
   // Ensure the model uses openai-completions API so streamOpenAICompletions works
   const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
@@ -299,7 +381,7 @@ function streamNeuralwatt(
 
   try {
     // Delegate all chunk parsing to the built-in handler
-    const stream = streamOpenAICompletions(neuralwattModel, context, {
+    const stream = streamOpenAICompletions(neuralwattModel, transformedContext, {
       ...options,
       apiKey,
     });
