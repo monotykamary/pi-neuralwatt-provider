@@ -68,6 +68,7 @@
     }
   },
   "moonshotai/Kimi-K2.6": {
+    "reasoning": true,
     "compat": {
       "supportsDeveloperRole": false
     },

@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
-  "entry": ["tests/*.mjs"],
+  "entry": ["scripts/*.mjs", "scripts/*.js", "tests/*.test.ts"],
   "ignoreExportsUsedInFile": true,
   "ignoreDependencies": ["@mariozechner/pi-ai", "@mariozechner/pi-coding-agent"]
 }

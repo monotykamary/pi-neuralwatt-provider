@@ -43,6 +43,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import models from "./models.json" with { type: "json" };
 import customModels from "./custom-models.json" with { type: "json" };
 import patches from "./patch.json" with { type: "json" };
+import { transformContextForImageLimit } from "./transform";
 
 // ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
 
@@ -154,11 +155,20 @@ function buildModelList(
     modelMap.set(model.id, model);
   }
 
-  // 3. Apply patch overrides
+  // 3. Apply patch overrides (deep-merge nested objects like compat, vision, cost)
+  const NESTED_KEYS = new Set(["compat", "vision", "cost"]);
   for (const [id, patch] of Object.entries(patchList)) {
     const existing = modelMap.get(id);
     if (existing) {
-      modelMap.set(id, { ...existing, ...patch });
+      const merged = { ...existing };
+      for (const [key, value] of Object.entries(patch)) {
+        if (NESTED_KEYS.has(key) && typeof value === "object" && value !== null && typeof (merged as any)[key] === "object") {
+          (merged as any)[key] = { ...(merged as any)[key], ...value };
+        } else {
+          (merged as any)[key] = value;
+        }
+      }
+      modelMap.set(id, merged);
     }
   }
 
@@ -168,7 +178,7 @@ function buildModelList(
 const piModels = buildModelList(
   models as NeuralwattModel[],
   customModels as NeuralwattModel[],
-  patches as any[],
+  patches as Record<string, any>,
 ).map((model) => {
   const result: any = {
     id: model.id,
@@ -271,66 +281,6 @@ async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void
   } catch {
     // Tee stream may error if the main stream is aborted — that's fine
   }
-}
-
-// ─── Vision Image-Limit Transform ─────────────────────────────────────────────
-
-/**
- * Count image blocks across all messages in a context and, if over the model's
- * per-request limit, drop the oldest images (FIFO).  Keeps text blocks intact.
- * If a message becomes empty after dropping images, a placeholder text is inserted
- * so the API still receives valid content.
- */
-function transformContextForImageLimit(
-  context: any,
-  maxImages: number | undefined,
-): any {
-  if (maxImages === undefined || maxImages === null || !Array.isArray(context?.messages)) return context;
-
-  type ImageRef = { msgIndex: number; blockIndex: number };
-  const images: ImageRef[] = [];
-
-  for (let m = 0; m < context.messages.length; m++) {
-    const msg = context.messages[m];
-    if (!msg?.content) continue;
-    const content = msg.content;
-    if (typeof content === "string") continue;
-    for (let c = 0; c < content.length; c++) {
-      if (content[c]?.type === "image") {
-        images.push({ msgIndex: m, blockIndex: c });
-      }
-    }
-  }
-
-  if (images.length <= maxImages) return context;
-
-  const toRemove = images.length - maxImages;
-  const removedIndices = new Set<string>();
-  for (let i = 0; i < toRemove; i++) {
-    const { msgIndex, blockIndex } = images[i];
-    removedIndices.add(`${msgIndex},${blockIndex}`);
-  }
-
-  const newMessages = context.messages.map((msg: any, msgIndex: number) => {
-    if (!msg?.content) return msg;
-    const content = msg.content;
-    if (typeof content === "string") return msg;
-
-    const newContent = content.filter((_block: any, blockIndex: number) => {
-      return !removedIndices.has(`${msgIndex},${blockIndex}`);
-    });
-
-    if (newContent.length === content.length) return msg;
-
-    const hadImages = content.some((block: any) => block?.type === "image");
-    if (hadImages && newContent.length === 0) {
-      newContent.push({ type: "text", text: "[image removed]" });
-    }
-
-    return { ...msg, content: newContent };
-  });
-
-  return { ...context, messages: newMessages };
 }
 
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
