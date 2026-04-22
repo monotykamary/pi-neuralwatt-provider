@@ -7,7 +7,12 @@
   "scripts": {
     "clean": "echo 'nothing to clean'",
     "build": "echo 'nothing to build'",
-    "check": "echo 'nothing to check'"
+    "check": "echo 'nothing to check'",
+    "lint:dead": "knip --no-gitignore",
+    "test": "echo 'No formal test runner yet — run individual files in tests/'",
+    "test:image-limit": "node tests/test-image-limit.mjs",
+    "test:image-limit-stream": "node tests/test-image-limit-stream.mjs",
+    "test:transform": "node tests/test-transform.mjs"
   },
   "keywords": [
     "pi",
@@ -26,6 +31,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "devDependencies": {
+    "knip": "^6.6.1"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
