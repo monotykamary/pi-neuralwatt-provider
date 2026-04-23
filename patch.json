@@ -73,7 +73,7 @@
       "supportsDeveloperRole": false
     },
     "vision": {
-      "maxImagesPerRequest": 4
+      "maxImagesPerRequest": 20
     }
   },
   "kimi-k2.6-fast": {

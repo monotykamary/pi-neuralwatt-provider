@@ -32,6 +32,20 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 | Kimi K2.6 | 262K | ✅ | ✅ | $0.95 | $4.00 |
 | Kimi K2.6 Fast | 262K | ❌ | ❌ | $0.60 | $3.00 |
 
+## Authentication
+
+The Neuralwatt API key can be configured in multiple ways (resolved in this order):
+
+1. **`auth.json`** (recommended) — Add to `~/.pi/agent/auth.json`:
+   ```json
+   { "neuralwatt": { "type": "api_key", "key": "your-api-key" } }
+   ```
+   The `key` field supports literal values, env var names, and shell commands (prefix with `!`). See [pi's auth file docs](https://github.com/badlogic/pi-mono) for details.
+2. **Runtime override** — Use the `--api-key` CLI flag
+3. **Environment variable** — Set `NEURALWATT_API_KEY`
+
+Get your API key from [neuralwatt.com](https://neuralwatt.com).
+
 ## Installation
 
 ### Option 1: Using `pi install` (Recommended)
@@ -42,13 +56,16 @@ Install directly from GitHub:
 pi install git:github.com/monotykamary/pi-neuralwatt-provider
 ```
 
-Then set your API key and run pi:
+Then authenticate and run pi:
 ```bash
+# Recommended: add to auth.json
+# See Authentication section below
+
+# Or set as environment variable
 export NEURALWATT_API_KEY=your-api-key-here
+
 pi
 ```
-
-Get your API key from [neuralwatt.com](https://neuralwatt.com).
 
 ### Option 2: Manual Clone
 
@@ -58,8 +75,12 @@ Get your API key from [neuralwatt.com](https://neuralwatt.com).
    cd pi-neuralwatt-provider
    ```
 
-2. Set your Neuralwatt API key:
+2. Configure your Neuralwatt API key:
    ```bash
+   # Recommended: add to auth.json
+   # See Authentication section below
+
+   # Or set as environment variable
    export NEURALWATT_API_KEY=your-api-key-here
    ```
 
@@ -72,7 +93,7 @@ Get your API key from [neuralwatt.com](https://neuralwatt.com).
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `NEURALWATT_API_KEY` | Yes | Your Neuralwatt API key from [neuralwatt.com](https://neuralwatt.com) |
+| `NEURALWATT_API_KEY` | No | Your Neuralwatt API key (fallback if not in auth.json) |
 
 ## Configuration
 

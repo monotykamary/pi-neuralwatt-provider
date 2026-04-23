@@ -246,7 +246,28 @@ async function main() {
       }
     }
 
-    // Apply patch overrides on top of API-derived data
+    // Sort models alphabetically by name
+    transformedModels.sort((a, b) => {
+      const nameA = a.name.toLowerCase();
+      const nameB = b.name.toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    // Load existing models for comparison
+    let existingModels = [];
+    try {
+      existingModels = JSON.parse(fs.readFileSync(MODELS_JSON_PATH, 'utf8'));
+    } catch (e) {
+      // File might not exist or be invalid
+    }
+
+    // Write models.json with raw API-derived data (no patches baked in)
+    // Patches are applied at runtime by the provider (buildModelList in index.ts)
+    const cleanModels = transformedModels.map(cleanModelForJson);
+    fs.writeFileSync(MODELS_JSON_PATH, JSON.stringify(cleanModels, null, 2) + '\n');
+    console.log('✓ Updated models.json (API-pure, no patches)');
+
+    // Apply patch overrides for merged/README list only
     for (const model of transformedModels) {
       const overrides = patch[model.id];
       if (overrides) {
@@ -270,26 +291,6 @@ async function main() {
         delete model.compat;
       }
     }
-
-    // Sort models alphabetically by name
-    transformedModels.sort((a, b) => {
-      const nameA = a.name.toLowerCase();
-      const nameB = b.name.toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-
-    // Load existing models for comparison
-    let existingModels = [];
-    try {
-      existingModels = JSON.parse(fs.readFileSync(MODELS_JSON_PATH, 'utf8'));
-    } catch (e) {
-      // File might not exist or be invalid
-    }
-
-    // Update models.json (without _meta fields)
-    const cleanModels = transformedModels.map(cleanModelForJson);
-    fs.writeFileSync(MODELS_JSON_PATH, JSON.stringify(cleanModels, null, 2) + '\n');
-    console.log('✓ Updated models.json');
 
     // ── Load and merge custom models ──────────────────────────────────
     let customModels = [];
@@ -337,6 +338,8 @@ async function main() {
         if (model.compat && Object.keys(model.compat).length === 0) {
           delete model.compat;
         }
+      } else {
+        console.log(`  ⚠ Custom model ${model.id} has no patch entry — add to patch.json for pricing/overrides`);
       }
       mergedMap.set(model.id, model);
     }
