@@ -70,7 +70,7 @@ function isVisionModel(modelId) {
 
 /**
  * Generate display name from model ID
- * e.g., "openai/gpt-oss-20b" -> "Neuralwatt: GPT-OSS 20B"
+ * e.g., "openai/gpt-oss-20b" -> "GPT-OSS 20B"
  */
 function generateDisplayName(modelId) {
   // Remove organization prefix
@@ -101,7 +101,7 @@ function generateDisplayName(modelId) {
     .replace(/MiniMax M2\.5/i, 'MiniMax M2.5')
     .replace(/Devstral Small 2 24B/i, 'Devstral Small 2 24B');
 
-  return `Neuralwatt: ${displayName}`;
+  return displayName;
 }
 
 /**
@@ -187,7 +187,7 @@ function generateReadmeTable(models) {
   ];
 
   for (const model of models) {
-    const name = model.name.replace(/^Neuralwatt:\s*/, '');
+    const name = model.name;
     const context = formatContextWindow(model.contextWindow);
     const vision = model.input.includes('image') ? '✅' : '❌';
     const reasoning = model.reasoning ? '✅' : '❌';

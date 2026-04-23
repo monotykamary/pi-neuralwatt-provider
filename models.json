@@ -1,7 +1,7 @@
 [
   {
     "id": "mistralai/Devstral-Small-2-24B-Instruct-2512",
-    "name": "Neuralwatt: Devstral Small 2 24B Instruct 2512",
+    "name": "Devstral Small 2 24B Instruct 2512",
     "reasoning": true,
     "input": [
       "text"
@@ -17,7 +17,7 @@
   },
   {
     "id": "glm-5-fast",
-    "name": "Neuralwatt: Glm 5 Fast",
+    "name": "Glm 5 Fast",
     "reasoning": false,
     "input": [
       "text"
@@ -33,7 +33,7 @@
   },
   {
     "id": "glm-5.1-fast",
-    "name": "Neuralwatt: Glm 5.1 Fast",
+    "name": "Glm 5.1 Fast",
     "reasoning": false,
     "input": [
       "text"
@@ -49,7 +49,7 @@
   },
   {
     "id": "zai-org/GLM-5.1-FP8",
-    "name": "Neuralwatt: GLM 5.1 FP8",
+    "name": "GLM 5.1 FP8",
     "reasoning": false,
     "input": [
       "text"
@@ -65,7 +65,7 @@
   },
   {
     "id": "openai/gpt-oss-20b",
-    "name": "Neuralwatt: GPT OSS 20b",
+    "name": "GPT OSS 20b",
     "reasoning": true,
     "input": [
       "text"
@@ -81,7 +81,7 @@
   },
   {
     "id": "moonshotai/Kimi-K2.5",
-    "name": "Neuralwatt: Kimi K2.5",
+    "name": "Kimi K2.5",
     "reasoning": true,
     "input": [
       "text",
@@ -98,7 +98,7 @@
   },
   {
     "id": "kimi-k2.5-fast",
-    "name": "Neuralwatt: Kimi K2.5 Fast",
+    "name": "Kimi K2.5 Fast",
     "reasoning": true,
     "input": [
       "text"
@@ -114,7 +114,7 @@
   },
   {
     "id": "moonshotai/Kimi-K2.6",
-    "name": "Neuralwatt: Kimi K2.6",
+    "name": "Kimi K2.6",
     "reasoning": true,
     "input": [
       "text",
@@ -131,7 +131,7 @@
   },
   {
     "id": "kimi-k2.6-fast",
-    "name": "Neuralwatt: Kimi K2.6 Fast",
+    "name": "Kimi K2.6 Fast",
     "reasoning": true,
     "input": [
       "text"
@@ -147,7 +147,7 @@
   },
   {
     "id": "MiniMaxAI/MiniMax-M2.5",
-    "name": "Neuralwatt: MiniMax M2.5",
+    "name": "MiniMax M2.5",
     "reasoning": false,
     "input": [
       "text"
@@ -163,7 +163,7 @@
   },
   {
     "id": "qwen3.5-35b-fast",
-    "name": "Neuralwatt: Qwen3.5 35b Fast",
+    "name": "Qwen3.5 35b Fast",
     "reasoning": true,
     "input": [
       "text"
@@ -179,7 +179,7 @@
   },
   {
     "id": "Qwen/Qwen3.5-397B-A17B-FP8",
-    "name": "Neuralwatt: Qwen3.5 397b A17B FP8",
+    "name": "Qwen3.5 397b A17B FP8",
     "reasoning": true,
     "input": [
       "text"
@@ -195,7 +195,7 @@
   },
   {
     "id": "qwen3.5-397b-fast",
-    "name": "Neuralwatt: Qwen3.5 397b Fast",
+    "name": "Qwen3.5 397b Fast",
     "reasoning": true,
     "input": [
       "text"
@@ -211,7 +211,7 @@
   },
   {
     "id": "Qwen/Qwen3.6-35B-A3B",
-    "name": "Neuralwatt: Qwen3.6 35b A3B",
+    "name": "Qwen3.6 35b A3B",
     "reasoning": false,
     "input": [
       "text"
@@ -227,7 +227,7 @@
   },
   {
     "id": "qwen3.6-35b-fast",
-    "name": "Neuralwatt: Qwen3.6 35b Fast",
+    "name": "Qwen3.6 35b Fast",
     "reasoning": false,
     "input": [
       "text"
