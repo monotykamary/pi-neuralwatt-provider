@@ -9,8 +9,9 @@
  * the HTTP response (the OpenAI SDK discards SSE comments), then displays it in the pi footer.
  *
  * Usage:
- *   # Option 1: Store in auth.json (recommended, via pi login or manual entry)
- *   pi login neuralwatt
+ *   # Option 1: Store in auth.json (recommended)
+ *   # Add to ~/.pi/agent/auth.json:
+ *   #   "neuralwatt": { "type": "api_key", "key": "your-api-key" }
  *
  *   # Option 2: Set as environment variable
  *   export NEURALWATT_API_KEY=your-api-key
@@ -60,7 +61,7 @@ import { transformContextForImageLimit } from "./transform";
  *
  * Resolution order (via AuthStorage.getApiKey):
  *   1. Runtime override (CLI --api-key)
- *   2. auth.json stored credentials (pi login / manual entry)
+ *   2. auth.json stored credentials (manual entry in ~/.pi/agent/auth.json)
  *   3. OAuth tokens (auto-refreshed)
  *   4. Environment variable (NEURALWATT_API_KEY)
  *   5. Fallback resolver
@@ -339,7 +340,7 @@ function streamNeuralwatt(
   const apiKey = options?.apiKey || cachedApiKey || process.env.NEURALWATT_API_KEY || "";
   if (!apiKey) {
     throw new Error(
-      `No API key for Neuralwatt. Store it in auth.json (pi login), ` +
+      `No API key for Neuralwatt. Add it to ~/.pi/agent/auth.json, ` +
       `set NEURALWATT_API_KEY env var, or use --api-key.`,
     );
   }

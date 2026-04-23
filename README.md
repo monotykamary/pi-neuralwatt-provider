@@ -36,7 +36,11 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 
 The Neuralwatt API key can be configured in multiple ways (resolved in this order):
 
-1. **`auth.json`** (recommended) — Store credentials via `pi login` or manually in `~/.pi/agent/auth.json`
+1. **`auth.json`** (recommended) — Add to `~/.pi/agent/auth.json`:
+   ```json
+   { "neuralwatt": { "type": "api_key", "key": "your-api-key" } }
+   ```
+   The `key` field supports literal values, env var names, and shell commands (prefix with `!`). See [pi's auth file docs](https://github.com/badlogic/pi-mono) for details.
 2. **Runtime override** — Use the `--api-key` CLI flag
 3. **Environment variable** — Set `NEURALWATT_API_KEY`
 
@@ -54,8 +58,8 @@ pi install git:github.com/monotykamary/pi-neuralwatt-provider
 
 Then authenticate and run pi:
 ```bash
-# Recommended: store key in auth.json
-pi login neuralwatt
+# Recommended: add to auth.json
+# See Authentication section below
 
 # Or set as environment variable
 export NEURALWATT_API_KEY=your-api-key-here
@@ -73,8 +77,8 @@ pi
 
 2. Configure your Neuralwatt API key:
    ```bash
-   # Recommended: store key in auth.json
-   pi login neuralwatt
+   # Recommended: add to auth.json
+   # See Authentication section below
 
    # Or set as environment variable
    export NEURALWATT_API_KEY=your-api-key-here
