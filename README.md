@@ -23,14 +23,14 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 | GPT OSS 20b | 16K | ❌ | ✅ | $0.50 | $1.50 |
 | Kimi K2.5 | 262K | ✅ | ✅ | $0.35 | $1.70 |
 | Kimi K2.5 Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
+| Kimi K2.6 | 262K | ✅ | ✅ | $0.00 | $0.00 |
+| Kimi K2.6 Fast | 262K | ❌ | ❌ | $0.00 | $0.00 |
 | MiniMax M2.5 | 197K | ❌ | ✅ | $0.11 | $0.95 |
 | Qwen3.5 35b Fast | 131K | ❌ | ✅ | $0.25 | $1.25 |
 | Qwen3.5 397b A17B FP8 | 262K | ❌ | ✅ | $0.35 | $1.75 |
 | Qwen3.5 397b Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
 | Qwen3.6 35b A3B | 131K | ❌ | ❌ | $0.30 | $1.00 |
 | Qwen3.6 35b Fast | 131K | ❌ | ❌ | $0.25 | $1.25 |
-| Kimi K2.6 | 262K | ✅ | ✅ | $0.95 | $4.00 |
-| Kimi K2.6 Fast | 262K | ❌ | ❌ | $0.60 | $3.00 |
 
 ## Authentication
 
