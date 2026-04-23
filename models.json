@@ -113,6 +113,9 @@
     "maxTokens": 262144,
     "compat": {
       "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
     }
   },
   {
