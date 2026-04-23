@@ -43,38 +43,36 @@
 import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { streamOpenAICompletions } from "@mariozechner/pi-ai";
 import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
-import type { AuthStorage, ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@mariozechner/pi-coding-agent";
 import models from "./models.json" with { type: "json" };
 import customModels from "./custom-models.json" with { type: "json" };
 import patches from "./patch.json" with { type: "json" };
 import { transformContextForImageLimit } from "./transform";
 
-// ─── API Key Resolution (via AuthStorage) ────────────────────────────────────
+// ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
 
 /**
- * Cached API key resolved from AuthStorage.
+ * Cached API key resolved from ModelRegistry.
  *
- * Pi's core resolves the key via AuthStorage before calling our streamSimple
+ * Pi's core resolves the key via ModelRegistry before calling our streamSimple
  * handler (passed as options.apiKey), but we also cache it here so we can
  * resolve it in contexts where options.apiKey isn't available (e.g. quota
- * fetching, future features) and to make the AuthStorage dependency explicit.
+ * fetching, future features) and to make the dependency explicit.
  *
- * Resolution order (via AuthStorage.getApiKey):
+ * Resolution order (via ModelRegistry.getApiKeyForProvider):
  *   1. Runtime override (CLI --api-key)
  *   2. auth.json stored credentials (manual entry in ~/.pi/agent/auth.json)
  *   3. OAuth tokens (auto-refreshed)
- *   4. Environment variable (NEURALWATT_API_KEY)
- *   5. Fallback resolver
+ *   4. Environment variable (from auth.json or provider config)
  */
 let cachedApiKey: string | undefined;
 
 /**
- * Resolve the Neuralwatt API key via AuthStorage and cache the result.
- * Called on session_start and whenever ctx.modelRegistry.authStorage is available.
+ * Resolve the Neuralwatt API key via ModelRegistry and cache the result.
+ * Called on session_start and whenever ctx.modelRegistry is available.
  */
-async function resolveApiKey(authStorage: AuthStorage): Promise<void> {
-  const key = await authStorage.getApiKey("neuralwatt");
-  cachedApiKey = key ?? process.env.NEURALWATT_API_KEY;
+async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
+  cachedApiKey = await modelRegistry.getApiKeyForProvider("neuralwatt") ?? undefined;
 }
 
 // ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
@@ -334,10 +332,9 @@ function streamNeuralwatt(
   context: any,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  // Pi's core resolves via AuthStorage before calling streamSimple (options.apiKey).
-  // cachedApiKey is our own AuthStorage-resolved copy (resolved on session_start).
-  // process.env.NEURALWATT_API_KEY is the last-resort env var fallback.
-  const apiKey = options?.apiKey || cachedApiKey || process.env.NEURALWATT_API_KEY || "";
+  // Pi's core resolves via ModelRegistry before calling streamSimple (options.apiKey).
+  // cachedApiKey is our own ModelRegistry-resolved copy (resolved on session_start).
+  const apiKey = options?.apiKey || cachedApiKey || "";
   if (!apiKey) {
     throw new Error(
       `No API key for Neuralwatt. Add it to ~/.pi/agent/auth.json, ` +
@@ -421,10 +418,10 @@ export default function (pi: ExtensionAPI) {
     updateEnergyStatus(ctx);
   });
 
-  // On session start/resume: resolve API key via AuthStorage, replay energy events
+  // On session start/resume: resolve API key via ModelRegistry, replay energy events
   pi.on("session_start", async (_event, ctx) => {
     resetSessionState();
-    await resolveApiKey(ctx.modelRegistry.authStorage);
+    await resolveApiKey(ctx.modelRegistry);
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
   });
