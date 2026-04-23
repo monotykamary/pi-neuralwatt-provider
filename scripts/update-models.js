@@ -152,6 +152,31 @@ function formatContextWindow(n) {
   return n.toString();
 }
 
+const NESTED_PATCH_KEYS = new Set(['compat', 'vision', 'cost']);
+
+/**
+ * Apply overrides from patch.json to a model (mutates model in place).
+ * Deep-merges nested objects (compat, vision, cost) and removes
+ * thinkingFormat from non-reasoning models.
+ */
+function applyPatchToModel(model, overrides) {
+  if (!overrides) return;
+  const cloned = { ...overrides };
+  for (const [key, value] of Object.entries(cloned)) {
+    if (NESTED_PATCH_KEYS.has(key) && typeof value === 'object' && value !== null && typeof model[key] === 'object') {
+      model[key] = { ...model[key], ...value };
+    } else {
+      model[key] = value;
+    }
+  }
+  if (!model.reasoning && model.compat?.thinkingFormat) {
+    delete model.compat.thinkingFormat;
+  }
+  if (model.compat && Object.keys(model.compat).length === 0) {
+    delete model.compat;
+  }
+}
+
 /**
  * Generate README model table
  */
@@ -199,11 +224,17 @@ function updateReadme(models) {
 }
 
 /**
- * Clean model data for JSON output (remove _meta fields)
+ * Clean model data for JSON output.
+ * Keeps only API-derived fields; strips any patch/runtime fields
+ * to ensure models.json stays API-pure.
  */
 function cleanModelForJson(model) {
-  const { _meta, ...cleanModel } = model;
-  return cleanModel;
+  const ALLOWED = ['id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens'];
+  const clean = {};
+  for (const key of ALLOWED) {
+    if (key in model) clean[key] = model[key];
+  }
+  return clean;
 }
 
 /**
@@ -269,27 +300,7 @@ async function main() {
 
     // Apply patch overrides for merged/README list only
     for (const model of transformedModels) {
-      const overrides = patch[model.id];
-      if (overrides) {
-        // Deep merge compat and cost, shallow merge everything else
-        if (overrides.compat && model.compat) {
-          model.compat = { ...model.compat, ...overrides.compat };
-          delete overrides.compat;
-        }
-        if (overrides.cost) {
-          model.cost = { ...model.cost, ...overrides.cost };
-          delete overrides.cost;
-        }
-        Object.assign(model, overrides);
-      }
-      // Remove thinkingFormat from non-reasoning models
-      if (!model.reasoning && model.compat?.thinkingFormat) {
-        delete model.compat.thinkingFormat;
-      }
-      // Remove empty compat leftover
-      if (model.compat && Object.keys(model.compat).length === 0) {
-        delete model.compat;
-      }
+      applyPatchToModel(model, patch[model.id]);
     }
 
     // ── Load and merge custom models ──────────────────────────────────
@@ -321,23 +332,8 @@ async function main() {
     }
     // Apply patch overrides on custom models too
     for (const model of customModels) {
-      const overrides = patch[model.id];
-      if (overrides) {
-        if (overrides.compat && model.compat) {
-          model.compat = { ...model.compat, ...overrides.compat };
-          delete overrides.compat;
-        }
-        if (overrides.cost) {
-          model.cost = { ...model.cost, ...overrides.cost };
-          delete overrides.cost;
-        }
-        Object.assign(model, overrides);
-        if (!model.reasoning && model.compat?.thinkingFormat) {
-          delete model.compat.thinkingFormat;
-        }
-        if (model.compat && Object.keys(model.compat).length === 0) {
-          delete model.compat;
-        }
+      if (patch[model.id]) {
+        applyPatchToModel(model, patch[model.id]);
       } else {
         console.log(`  ⚠ Custom model ${model.id} has no patch entry — add to patch.json for pricing/overrides`);
       }
