@@ -162,22 +162,6 @@
     "maxTokens": 196608
   },
   {
-    "id": "qwen3.5-35b-fast",
-    "name": "Qwen3.5 35b Fast",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 131072,
-    "maxTokens": 131072
-  },
-  {
     "id": "Qwen/Qwen3.5-397B-A17B-FP8",
     "name": "Qwen3.5 397b A17B FP8",
     "reasoning": true,
