@@ -83,8 +83,25 @@ async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
  * This naturally handles branching, forking, and tree navigation.
  */
 interface EnergyEvent {
+  // Core totals (used for footer display)
   energy_joules: number;
   cost_usd: number;
+
+  // —— Energy detail ——
+  energy_kwh?: number;
+  avg_power_watts?: number;
+  duration_seconds?: number;
+  attribution_method?: string;
+  attribution_ratio?: number;
+  ratio_was_capped?: boolean;
+  uncapped_attribution_ratio?: number;
+  uncapped_energy_joules?: number;
+  uncapped_energy_kwh?: number;
+
+  // —— Cost detail ——
+  cache_savings_usd?: number;
+  allowance_remaining_usd?: number;
+  budget_remaining_usd?: number;
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
@@ -97,11 +114,15 @@ let sessionCostUsd = 0;
 let pendingEnergyJoules = 0;
 let pendingCostUsd = 0;
 
+/** Full pending detail captured from SSE comments — persisted alongside totals on turn_end */
+let pendingDetail: Partial<EnergyEvent> = {};
+
 function resetSessionState() {
   sessionEnergyJoules = 0;
   sessionCostUsd = 0;
   pendingEnergyJoules = 0;
   pendingCostUsd = 0;
+  pendingDetail = {};
   // Note: cachedApiKey is not reset here — it's auth config, not session state.
   // It's re-resolved on session_start and session_tree events.
 }
@@ -297,6 +318,15 @@ async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void
           try {
             const energy = JSON.parse(trimmed.slice(9));
             pendingEnergyJoules += energy.energy_joules || 0;
+            pendingDetail.energy_kwh = energy.energy_kwh ?? pendingDetail.energy_kwh;
+            pendingDetail.avg_power_watts = energy.avg_power_watts ?? pendingDetail.avg_power_watts;
+            pendingDetail.duration_seconds = energy.duration_seconds ?? pendingDetail.duration_seconds;
+            pendingDetail.attribution_method = energy.attribution_method ?? pendingDetail.attribution_method;
+            pendingDetail.attribution_ratio = energy.attribution_ratio ?? pendingDetail.attribution_ratio;
+            pendingDetail.ratio_was_capped = energy.ratio_was_capped ?? pendingDetail.ratio_was_capped;
+            pendingDetail.uncapped_attribution_ratio = energy.uncapped_attribution_ratio ?? pendingDetail.uncapped_attribution_ratio;
+            pendingDetail.uncapped_energy_joules = energy.uncapped_energy_joules ?? pendingDetail.uncapped_energy_joules;
+            pendingDetail.uncapped_energy_kwh = energy.uncapped_energy_kwh ?? pendingDetail.uncapped_energy_kwh;
           } catch {
             // Malformed energy comment, ignore
           }
@@ -304,6 +334,9 @@ async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void
           try {
             const cost = JSON.parse(trimmed.slice(7));
             pendingCostUsd += cost.request_cost_usd || 0;
+            pendingDetail.cache_savings_usd = cost.cache_savings_usd ?? pendingDetail.cache_savings_usd;
+            pendingDetail.allowance_remaining_usd = cost.allowance_remaining_usd ?? pendingDetail.allowance_remaining_usd;
+            pendingDetail.budget_remaining_usd = cost.budget_remaining_usd ?? pendingDetail.budget_remaining_usd;
           } catch {
             // Malformed cost comment, ignore
           }
@@ -403,17 +436,20 @@ export default function (pi: ExtensionAPI) {
     streamSimple: streamNeuralwatt,
   });
 
-  // After each turn: persist pending energy event, update status
+  // After each turn: persist pending energy event (totals + full detail), update status
   pi.on("turn_end", async (_event, ctx) => {
     if (pendingEnergyJoules > 0 || pendingCostUsd > 0) {
-      pi.appendEntry(ENERGY_ENTRY_TYPE, {
+      const entry: EnergyEvent = {
         energy_joules: pendingEnergyJoules,
         cost_usd: pendingCostUsd,
-      } as EnergyEvent);
+        ...pendingDetail,
+      };
+      pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;
       pendingEnergyJoules = 0;
       pendingCostUsd = 0;
+      pendingDetail = {};
     }
     updateEnergyStatus(ctx);
   });
