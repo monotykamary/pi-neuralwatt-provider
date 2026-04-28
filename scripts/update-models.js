@@ -3,16 +3,21 @@
  * Update Neuralwatt models from API
  *
  * Fetches models from https://api.neuralwatt.com/v1/models and updates:
- * - models.json: Provider model definitions
+ * - models.json: Provider model definitions (with pricing, capabilities, limits from API metadata)
  * - custom-models.json: Exclusive/hidden/preview models not in the API
+ * - patch.json: Minimal manual overrides (only for API errors/omissions)
  * - README.md: Model table in the Available Models section
  *
  * Data flow:
- *   models.json         → auto-generated from Neuralwatt API (model discovery)
- *   patch.json          → manual overrides (pricing, reasoning, limits, etc.)
- *   custom-models.json  → exclusive/hidden/preview models not in the API
+ *   API /v1/models        → metadata.pricing, metadata.capabilities, metadata.limits
+ *   models.json           → auto-generated from API (all fields from metadata)
+ *   patch.json            → manual overrides only where API is wrong or incomplete
+ *   custom-models.json    → exclusive/hidden/preview models not in the API
  *
  * Merge order: models.json → apply patch.json → merge custom-models.json
+ *
+ * The API now provides pricing, reasoning, vision, developer_role, reasoning_effort,
+ * and max_images in the metadata field, so patch.json should be mostly empty.
  */
 
 import fs from 'fs';
@@ -27,120 +32,103 @@ const CUSTOM_MODELS_JSON_PATH = path.join(__dirname, '..', 'custom-models.json')
 const README_PATH = path.join(__dirname, '..', 'README.md');
 const PATCH_PATH = path.join(__dirname, '..', 'patch.json');
 
-// Known reasoning models by ID pattern
-const REASONING_MODEL_PATTERNS = [
-  /kimi-k2\.[56]/i,
-  /qwen3\.5/i,
-  /gpt-oss/i,
-  /devstral/i,
-];
-
-// Models known to support vision (image input) - exact IDs only
-const VISION_MODEL_IDS = [
-  'moonshotai/Kimi-K2.5',
-  'moonshotai/Kimi-K2.6',
-];
-
-// Models that explicitly do NOT have vision despite similar names
-const NO_VISION_MODEL_IDS = [
-  'kimi-k2.5-fast',
-  'kimi-k2.6-fast',
-];
-
 /**
- * Check if a model ID indicates reasoning capability
+ * Generate display name from API metadata.display_name, with fallback to model ID.
  */
-function isReasoningModel(modelId) {
-  const lowerId = modelId.toLowerCase();
-  return REASONING_MODEL_PATTERNS.some(pattern => pattern.test(lowerId));
-}
-
-/**
- * Check if a model ID indicates vision capability
- */
-function isVisionModel(modelId) {
-  const lowerId = modelId.toLowerCase();
-  // Explicit exclusions first
-  if (NO_VISION_MODEL_IDS.some(id => lowerId === id.toLowerCase())) {
-    return false;
+function resolveDisplayName(apiModel) {
+  const meta = apiModel.metadata || {};
+  // Use the API's display_name directly if available
+  if (meta.display_name) {
+    return meta.display_name;
   }
-  // Exact ID matches for vision support
-  return VISION_MODEL_IDS.some(id => lowerId === id.toLowerCase());
-}
-
-/**
- * Generate display name from model ID
- * e.g., "openai/gpt-oss-20b" -> "GPT-OSS 20B"
- */
-function generateDisplayName(modelId) {
-  // Remove organization prefix
-  const parts = modelId.split('/');
+  // Fallback: generate from model ID
+  const parts = apiModel.id.split('/');
   const namePart = parts[parts.length - 1];
-
-  // Convert to readable format
-  let displayName = namePart
+  return namePart
     .replace(/-/g, ' ')
     .replace(/_/g, ' ')
     .split(' ')
     .map(word => {
-      // Keep known acronyms uppercase
       const acronyms = ['oss', 'fp8', 'a3b', 'a17b', 'it', 'gpt'];
       if (acronyms.includes(word.toLowerCase())) {
         return word.toUpperCase();
       }
-      // Capitalize first letter
       return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
     })
     .join(' ');
-
-  // Special cases for better naming
-  displayName = displayName
-    .replace(/GLM 5\.1 FP8/i, 'GLM 5.1 FP8')
-    .replace(/Kimi K2\.[56]/i, (m) => m) // preserve K2.5, K2.6
-    .replace(/Qwen3\.5/i, 'Qwen3.5')
-    .replace(/MiniMax M2\.5/i, 'MiniMax M2.5')
-    .replace(/Devstral Small 2 24B/i, 'Devstral Small 2 24B');
-
-  return displayName;
 }
 
 /**
- * Transform API model to local format.
- * Pricing comes from patch.json, not from the API.
+ * Transform API model to local format using metadata from the API.
+ *
+ * The API now provides:
+ *   metadata.pricing.input_per_million       → cost.input
+ *   metadata.pricing.output_per_million      → cost.output
+ *   metadata.pricing.cached_input_per_million → cost.cacheRead
+ *   metadata.capabilities.reasoning          → reasoning
+ *   metadata.capabilities.vision            → input: ["text", "image"]
+ *   metadata.capabilities.developer_role     → compat.supportsDeveloperRole
+ *   metadata.capabilities.reasoning_effort   → compat.supportsReasoningEffort
+ *   metadata.limits.max_images               → vision.maxImagesPerRequest
+ *   metadata.limits.max_context_length       → contextWindow
+ *   metadata.limits.max_output_tokens        → maxTokens
  */
 function transformModel(apiModel) {
-  const modelId = apiModel.id;
-  const hasReasoning = isReasoningModel(modelId);
-  const hasVision = isVisionModel(modelId);
+  const meta = apiModel.metadata || {};
+  const pricing = meta.pricing || {};
+  const caps = meta.capabilities || {};
+  const limits = meta.limits || {};
 
-  // Determine input types
+  const hasVision = caps.vision === true;
+  const hasReasoning = caps.reasoning === true;
+
+  // Input types
   const inputTypes = ['text'];
   if (hasVision) {
     inputTypes.push('image');
   }
 
-  // Use max_model_len from API or fallback
-  const contextWindow = apiModel.max_model_len || 131072;
-  const maxTokens = apiModel.max_completion_tokens || contextWindow;
+  // Context window and max tokens
+  const contextWindow = limits.max_context_length || apiModel.max_model_len || 131072;
+  const maxTokens = limits.max_output_tokens || contextWindow;
 
-  return {
-    id: modelId,
-    name: generateDisplayName(modelId),
+  // Cost (per million tokens)
+  const cost = {
+    input: pricing.input_per_million ?? 0,
+    output: pricing.output_per_million ?? 0,
+    cacheRead: pricing.cached_input_per_million ?? 0,
+    cacheWrite: 0, // API doesn't provide cache write pricing
+  };
+
+  // Build the model object
+  const model = {
+    id: apiModel.id,
+    name: resolveDisplayName(apiModel),
     reasoning: hasReasoning,
     input: inputTypes,
-    cost: {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-    },
-    contextWindow: contextWindow,
-    maxTokens: maxTokens,
-    // Metadata for README generation
-    _meta: {
-      quantization: apiModel.quantization,
-    },
+    cost,
+    contextWindow,
+    maxTokens,
   };
+
+  // Compat settings (only include non-default values)
+  const compat = {};
+  if (caps.developer_role === false) {
+    compat.supportsDeveloperRole = false;
+  }
+  if (caps.reasoning_effort === true) {
+    compat.supportsReasoningEffort = true;
+  }
+  if (Object.keys(compat).length > 0) {
+    model.compat = compat;
+  }
+
+  // Vision settings (only for vision models with a max_images limit)
+  if (hasVision && limits.max_images != null) {
+    model.vision = { maxImagesPerRequest: limits.max_images };
+  }
+
+  return model;
 }
 
 /**
@@ -156,19 +144,18 @@ const NESTED_PATCH_KEYS = new Set(['compat', 'vision', 'cost']);
 
 /**
  * Apply overrides from patch.json to a model (mutates model in place).
- * Deep-merges nested objects (compat, vision, cost) and removes
- * thinkingFormat from non-reasoning models.
+ * Deep-merges nested objects (compat, vision, cost).
  */
 function applyPatchToModel(model, overrides) {
   if (!overrides) return;
-  const cloned = { ...overrides };
-  for (const [key, value] of Object.entries(cloned)) {
+  for (const [key, value] of Object.entries(overrides)) {
     if (NESTED_PATCH_KEYS.has(key) && typeof value === 'object' && value !== null && typeof model[key] === 'object') {
       model[key] = { ...model[key], ...value };
     } else {
       model[key] = value;
     }
   }
+  // Clean up: don't leave thinkingFormat on non-reasoning models
   if (!model.reasoning && model.compat?.thinkingFormat) {
     delete model.compat.thinkingFormat;
   }
@@ -207,14 +194,9 @@ function updateReadme(models) {
   let readme = fs.readFileSync(README_PATH, 'utf8');
   const newTable = generateReadmeTable(models);
 
-  // Find and replace the model table within the Available Models section
-  // Match the table header row and all subsequent table rows (lines starting with |)
-  // Also capture trailing newlines to preserve spacing
   const tableRegex = /(## Available Models\n\n)\| Model \|[^\n]+\|\n\|[-| ]+\|(\n\|[^\n]+\|)*\n*/;
 
   if (tableRegex.test(readme)) {
-    // Use a replacer function to avoid $ being interpreted as regex group reference
-    // Add single blank line after table (standard markdown spacing before next heading)
     readme = readme.replace(tableRegex, (match, header) => `${header}${newTable}\n\n`);
     fs.writeFileSync(README_PATH, readme);
     console.log('✓ Updated README.md');
@@ -224,17 +206,38 @@ function updateReadme(models) {
 }
 
 /**
- * Clean model data for JSON output.
- * Keeps only API-derived fields; strips any patch/runtime fields
- * to ensure models.json stays API-pure.
+ * Clean model data for models.json output.
+ * Keeps the full model spec (pricing, compat, vision) since these now come from the API.
  */
 function cleanModelForJson(model) {
-  const ALLOWED = ['id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens'];
+  const ALLOWED = ['id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens', 'compat', 'vision'];
   const clean = {};
   for (const key of ALLOWED) {
     if (key in model) clean[key] = model[key];
   }
   return clean;
+}
+
+/**
+ * Clean stale entries from patch.json where the model no longer exists in the API.
+ * Returns the cleaned patch object.
+ */
+function cleanStalePatchEntries(patch, upstreamIds) {
+  const stale = Object.keys(patch).filter(id => !upstreamIds.has(id));
+  if (stale.length === 0) return patch;
+
+  console.log(`\nStale patch entries (model no longer in API):`);
+  for (const id of stale) {
+    console.log(`  - ${id}`);
+  }
+
+  const cleaned = { ...patch };
+  for (const id of stale) {
+    delete cleaned[id];
+  }
+  fs.writeFileSync(PATCH_PATH, JSON.stringify(cleaned, null, 2) + '\n');
+  console.log(`✓ Removed ${stale.length} stale entry/entries from patch.json`);
+  return cleaned;
 }
 
 /**
@@ -250,13 +253,27 @@ async function main() {
     }
 
     const apiResponse = await response.json();
-    const apiModels = apiResponse.data || apiResponse; // Handle both {data: [...]} and direct array
+    const apiModels = apiResponse.data || apiResponse;
 
     if (!Array.isArray(apiModels)) {
       throw new Error('API response does not contain an array of models');
     }
 
     console.log(`✓ Fetched ${apiModels.length} models from API`);
+
+    // Transform models using API metadata (pricing, capabilities, limits)
+    const transformedModels = apiModels.map(transformModel);
+
+    // Sort models alphabetically by name
+    transformedModels.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+    // Load existing models for diff
+    let existingModels = [];
+    try {
+      existingModels = JSON.parse(fs.readFileSync(MODELS_JSON_PATH, 'utf8'));
+    } catch (e) {
+      // File might not exist or be invalid
+    }
 
     // Load patch overrides
     let patch = {};
@@ -267,38 +284,27 @@ async function main() {
       console.log('No patch.json found, skipping overrides');
     }
 
-    // Transform models
-    const transformedModels = apiModels.map(transformModel);
+    // Clean stale entries from patch.json
+    const upstreamIds = new Set(transformedModels.map(m => m.id));
+    patch = cleanStalePatchEntries(patch, upstreamIds);
 
-    // Log new models missing from patch.json (they'll have zero pricing)
-    for (const model of transformedModels) {
-      if (!patch[model.id]) {
-        console.log(`  🆕 New model: ${model.id} (${model.name}) — add to patch.json for pricing/overrides`);
+    // Log models that still have patch overrides (should be minimal now)
+    const remainingPatchCount = Object.keys(patch).length;
+    if (remainingPatchCount > 0) {
+      console.log(`\nRemaining patch overrides (${remainingPatchCount}):`);
+      for (const [id, overrides] of Object.entries(patch)) {
+        console.log(`  - ${id}: ${JSON.stringify(overrides)}`);
       }
+    } else {
+      console.log('\n✓ No patch overrides needed — API metadata is sufficient!');
     }
 
-    // Sort models alphabetically by name
-    transformedModels.sort((a, b) => {
-      const nameA = a.name.toLowerCase();
-      const nameB = b.name.toLowerCase();
-      return nameA.localeCompare(nameB);
-    });
-
-    // Load existing models for comparison
-    let existingModels = [];
-    try {
-      existingModels = JSON.parse(fs.readFileSync(MODELS_JSON_PATH, 'utf8'));
-    } catch (e) {
-      // File might not exist or be invalid
-    }
-
-    // Write models.json with raw API-derived data (no patches baked in)
-    // Patches are applied at runtime by the provider (buildModelList in index.ts)
+    // Write models.json (now includes pricing, compat, vision from API)
     const cleanModels = transformedModels.map(cleanModelForJson);
     fs.writeFileSync(MODELS_JSON_PATH, JSON.stringify(cleanModels, null, 2) + '\n');
-    console.log('✓ Updated models.json (API-pure, no patches)');
+    console.log('✓ Updated models.json (from API metadata)');
 
-    // Apply patch overrides for merged/README list only
+    // Apply patch overrides for merged/README list
     for (const model of transformedModels) {
       applyPatchToModel(model, patch[model.id]);
     }
@@ -313,7 +319,6 @@ async function main() {
     }
 
     // Clean up custom models that now appear in the upstream API
-    const upstreamIds = new Set(transformedModels.map(m => m.id));
     const duplicates = customModels.filter(m => upstreamIds.has(m.id));
     if (duplicates.length > 0) {
       console.log(`\nFound ${duplicates.length} custom model(s) now available upstream:`);
@@ -330,13 +335,8 @@ async function main() {
     for (const model of transformedModels) {
       mergedMap.set(model.id, model);
     }
-    // Apply patch overrides on custom models too
     for (const model of customModels) {
-      if (patch[model.id]) {
-        applyPatchToModel(model, patch[model.id]);
-      } else {
-        console.log(`  ⚠ Custom model ${model.id} has no patch entry — add to patch.json for pricing/overrides`);
-      }
+      applyPatchToModel(model, patch[model.id]);
       mergedMap.set(model.id, model);
     }
     const allModels = Array.from(mergedMap.values());
@@ -364,6 +364,21 @@ async function main() {
     }
     if (removed.length > 0) {
       console.log(`\nRemoved models: ${removed.join(', ')}`);
+    }
+
+    // Diff pricing for existing models
+    const oldModelMap = new Map(existingModels.map(m => [m.id, m]));
+    const pricingChanged = transformedModels.filter(m => {
+      const old = oldModelMap.get(m.id);
+      if (!old) return false;
+      return old.cost.input !== m.cost.input || old.cost.output !== m.cost.output;
+    });
+    if (pricingChanged.length > 0) {
+      console.log(`\nPricing changes:`);
+      for (const m of pricingChanged) {
+        const old = oldModelMap.get(m.id);
+        console.log(`  ${m.id}: $${old.cost.input}/$${old.cost.output} → $${m.cost.input}/$${m.cost.output}`);
+      }
     }
 
   } catch (error) {

@@ -6,7 +6,7 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 
 - **OpenAI-compatible API** - Uses Neuralwatt's `/v1/chat/completions` endpoint
 - **Reasoning models** - Support for thinking models with `reasoning_effort` parameter
-- **Vision models** - Image input support on Kimi K2.5
+- **Vision models** - Image input support on Kimi K2.5, K2.6, and Devstral
 - **Tool use** - Function calling support
 - **Streaming** - Real-time token streaming
 - **Fast variants** - Optimized "Fast" versions of popular models for quicker responses
@@ -16,20 +16,20 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 
 | Model | Context | Vision | Reasoning | Input $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|------------|
-| Devstral Small 2 24B Instruct 2512 | 262K | ❌ | ❌ | $0.15 | $0.45 |
-| Glm 5 Fast | 203K | ❌ | ❌ | $0.25 | $1.10 |
-| Glm 5.1 Fast | 203K | ❌ | ❌ | $0.48 | $1.90 |
-| GLM 5.1 FP8 | 203K | ❌ | ✅ | $0.50 | $2.10 |
-| GPT OSS 20b | 16K | ❌ | ✅ | $0.50 | $1.50 |
-| Kimi K2.5 | 262K | ✅ | ✅ | $0.35 | $1.70 |
-| Kimi K2.5 Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
-| Kimi K2.6 | 262K | ✅ | ✅ | $0.70 | $3.20 |
-| Kimi K2.6 Fast | 262K | ❌ | ❌ | $0.70 | $3.20 |
-| MiniMax M2.5 | 197K | ❌ | ✅ | $0.11 | $0.95 |
-| Qwen3.5 397b A17B FP8 | 262K | ❌ | ✅ | $0.35 | $1.75 |
-| Qwen3.5 397b Fast | 262K | ❌ | ❌ | $0.25 | $1.25 |
-| Qwen3.6 35b A3B | 131K | ❌ | ❌ | $0.30 | $1.00 |
-| Qwen3.6 35b Fast | 131K | ❌ | ❌ | $0.25 | $1.25 |
+| Devstral-Small-2-24B-Instruct-2512 | 262K | ✅ | ❌ | $0.12 | $0.35 |
+| GLM-5 Fast | 200K | ❌ | ❌ | $1.10 | $3.60 |
+| GLM-5.1 | 200K | ❌ | ✅ | $1.10 | $3.60 |
+| GLM-5.1 Fast | 200K | ❌ | ❌ | $1.10 | $3.60 |
+| GPT-OSS 20B | 16K | ❌ | ✅ | $0.03 | $0.16 |
+| Kimi K2.5 | 262K | ✅ | ✅ | $0.52 | $2.59 |
+| Kimi K2.5 Fast | 262K | ✅ | ❌ | $0.52 | $2.59 |
+| Kimi K2.6 | 262K | ✅ | ✅ | $0.69 | $3.22 |
+| Kimi K2.6 Fast | 262K | ✅ | ✅ | $0.69 | $3.22 |
+| MiniMax M2.5 | 197K | ❌ | ✅ | $0.35 | $1.38 |
+| Qwen3.5 397B | 262K | ❌ | ✅ | $0.69 | $4.14 |
+| Qwen3.5 397B Fast | 262K | ❌ | ❌ | $0.69 | $4.14 |
+| Qwen3.6 35B | 131K | ❌ | ✅ | $0.05 | $0.10 |
+| Qwen3.6 35B Fast | 131K | ❌ | ❌ | $0.05 | $0.10 |
 
 ## Authentication
 
@@ -98,10 +98,11 @@ pi
 
 ### Compat Settings
 
-Neuralwatt runs on vLLM, which requires specific compatibility settings for reasoning models. These are pre-configured in `models.json`:
+Neuralwatt's API now provides compatibility and capability metadata (pricing, reasoning, vision, developer_role, reasoning_effort, max_images) directly in the `/v1/models` response. The `update-models.js` script reads these and writes them into `models.json`. Only genuinely incorrect API data needs a manual override in `patch.json`.
+
+Currently configured compat settings (all sourced from the API):
 
 - **`supportsDeveloperRole: false`** — All models. vLLM doesn't support the `developer` role; pi sends system prompts as `system` messages instead.
-- **`thinkingFormat: "qwen"`** — Qwen, Kimi, and Devstral reasoning models. Sends `enable_thinking: true` in the request body to activate thinking mode.
 - **`supportsReasoningEffort: true`** — GPT-OSS. Sends `reasoning_effort` parameter (maps to pi's `/reasoning` command levels).
 
 ### Custom Stream Handler

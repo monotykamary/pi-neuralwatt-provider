@@ -1,83 +1,100 @@
 [
   {
     "id": "mistralai/Devstral-Small-2-24B-Instruct-2512",
-    "name": "Devstral Small 2 24B Instruct 2512",
-    "reasoning": true,
+    "name": "Devstral-Small-2-24B-Instruct-2512",
+    "reasoning": false,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.12,
+      "output": 0.35,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "glm-5-fast",
-    "name": "Glm 5 Fast",
+    "name": "GLM-5 Fast",
     "reasoning": false,
     "input": [
       "text"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 1.1,
+      "output": 3.6,
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 202752,
-    "maxTokens": 202752
-  },
-  {
-    "id": "glm-5.1-fast",
-    "name": "Glm 5.1 Fast",
-    "reasoning": false,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 202752,
-    "maxTokens": 202752
+    "contextWindow": 200000,
+    "maxTokens": 200000,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "zai-org/GLM-5.1-FP8",
-    "name": "GLM 5.1 FP8",
-    "reasoning": false,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 202752,
-    "maxTokens": 202752
-  },
-  {
-    "id": "openai/gpt-oss-20b",
-    "name": "GPT OSS 20b",
+    "name": "GLM-5.1",
     "reasoning": true,
     "input": [
       "text"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 200000,
+    "maxTokens": 200000,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "glm-5.1-fast",
+    "name": "GLM-5.1 Fast",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 200000,
+    "maxTokens": 200000,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "openai/gpt-oss-20b",
+    "name": "GPT-OSS 20B",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.03,
+      "output": 0.16,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 16384,
-    "maxTokens": 16384
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
   },
   {
     "id": "moonshotai/Kimi-K2.5",
@@ -88,29 +105,42 @@
       "image"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.52,
+      "output": 2.59,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
   },
   {
     "id": "kimi-k2.5-fast",
     "name": "Kimi K2.5 Fast",
-    "reasoning": true,
+    "reasoning": false,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.52,
+      "output": 2.59,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
   },
   {
     "id": "moonshotai/Kimi-K2.6",
@@ -121,108 +151,136 @@
       "image"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.69,
+      "output": 3.22,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
   },
   {
     "id": "kimi-k2.6-fast",
     "name": "Kimi K2.6 Fast",
     "reasoning": true,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.69,
+      "output": 3.22,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
   },
   {
     "id": "MiniMaxAI/MiniMax-M2.5",
     "name": "MiniMax M2.5",
-    "reasoning": false,
+    "reasoning": true,
     "input": [
       "text"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.35,
+      "output": 1.38,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 196608,
-    "maxTokens": 196608
+    "maxTokens": 196608,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "Qwen/Qwen3.5-397B-A17B-FP8",
-    "name": "Qwen3.5 397b A17B FP8",
+    "name": "Qwen3.5 397B",
     "reasoning": true,
     "input": [
       "text"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.69,
+      "output": 4.14,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 262144,
-    "maxTokens": 262144
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "qwen3.5-397b-fast",
-    "name": "Qwen3.5 397b Fast",
+    "name": "Qwen3.5 397B Fast",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 4.14,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262144,
+    "maxTokens": 262144,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "Qwen/Qwen3.6-35B-A3B",
+    "name": "Qwen3.6 35B",
     "reasoning": true,
     "input": [
       "text"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 262144,
-    "maxTokens": 262144
-  },
-  {
-    "id": "Qwen/Qwen3.6-35B-A3B",
-    "name": "Qwen3.6 35b A3B",
-    "reasoning": false,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.05,
+      "output": 0.1,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 131072,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   },
   {
     "id": "qwen3.6-35b-fast",
-    "name": "Qwen3.6 35b Fast",
+    "name": "Qwen3.6 35B Fast",
     "reasoning": false,
     "input": [
       "text"
     ],
     "cost": {
-      "input": 0,
-      "output": 0,
+      "input": 0.05,
+      "output": 0.1,
       "cacheRead": 0,
       "cacheWrite": 0
     },
     "contextWindow": 131072,
-    "maxTokens": 131072
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
   }
 ]

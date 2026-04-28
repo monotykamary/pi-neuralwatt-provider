@@ -20,10 +20,11 @@
  *   pi -e /path/to/pi-neuralwatt-provider
  *
  * Data flow:
- *   models.json         → auto-generated from Neuralwatt API (model discovery)
+ *   models.json         → auto-generated from Neuralwatt API (pricing, capabilities, limits from metadata)
+ *   patch.json          → manual overrides only where API is wrong or incomplete (usually empty)
  *   custom-models.json  → exclusive/hidden/preview models not in the API
  *
- * Merge order: models.json → merge custom-models.json → transform to pi format
+ * Merge order: models.json → apply patch.json → merge custom-models.json → transform to pi format
  *
  * Then use /model to select from available models like Kimi K2.5, Kimi K2.6, GLM 5, GLM 5.1,
  * Qwen3.5, GPT-OSS 20B, Devstral Small 2, and MiniMax M2.5.
@@ -48,6 +49,9 @@ import models from "./models.json" with { type: "json" };
 import customModels from "./custom-models.json" with { type: "json" };
 import patches from "./patch.json" with { type: "json" };
 import { transformContextForImageLimit } from "./transform";
+
+// Suppress unused-import lint when patch.json is empty ({} resolves to void at runtime)
+void patches;
 
 // ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
 
@@ -186,10 +190,11 @@ interface NeuralwattModel {
 }
 
 /**
- * Build the model list: regular models → merge custom models → apply patches → transform to pi format.
+ * Build the model list: regular models → apply patches → merge custom models → transform to pi format.
+ * Regular models (models.json) now include pricing, capabilities, and limits from the API metadata.
+ * Patches (patch.json) apply non-destructive overrides only where the API is wrong or incomplete.
  * Custom models (custom-models.json) take precedence over regular models with the same id,
  * and can also add models not present in the API (e.g., exclusive/preview models).
- * Patches (patch.json) apply non-destructive overrides (like vision limits).
  */
 function buildModelList(
   regular: NeuralwattModel[],
