@@ -487,6 +487,8 @@ export default function (pi: ExtensionAPI) {
     revalidateModels(cachedApiKey, embeddedModels).then((freshBase) => {
       if (freshBase) {
         pi.registerProvider("neuralwatt", {
+          baseUrl: BASE_URL,
+          apiKey: "NEURALWATT_API_KEY",
           models: buildModelList(freshBase, customModels, patches),
           streamSimple: streamNeuralwatt,
         });
