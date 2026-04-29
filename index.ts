@@ -489,6 +489,7 @@ export default function (pi: ExtensionAPI) {
         pi.registerProvider("neuralwatt", {
           baseUrl: BASE_URL,
           apiKey: "NEURALWATT_API_KEY",
+          api: "neuralwatt",
           models: buildModelList(freshBase, customModels, patches),
           streamSimple: streamNeuralwatt,
         });
