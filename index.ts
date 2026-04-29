@@ -8,6 +8,13 @@
  * API response. This extension captures that data via a custom stream handler that tees
  * the HTTP response (the OpenAI SDK discards SSE comments), then displays it in the pi footer.
  *
+ * Model resolution strategy: Stale-While-Revalidate
+ *   1. Serve stale immediately: disk cache → embedded models.json (zero-latency)
+ *   2. Revalidate in background: live API /models → merge with embedded → cache → hot-swap
+ *   3. patch.json + custom-models.json applied on top of whichever source won
+ *
+ * Merge order: [live|cache|embedded] → apply patch.json → merge custom-models.json → transform
+ *
  * Usage:
  *   # Option 1: Store in auth.json (recommended)
  *   # Add to ~/.pi/agent/auth.json:
@@ -18,13 +25,6 @@
  *
  *   # Run pi with the extension
  *   pi -e /path/to/pi-neuralwatt-provider
- *
- * Data flow:
- *   models.json         → auto-generated from Neuralwatt API (pricing, capabilities, limits from metadata)
- *   patch.json          → manual overrides only where API is wrong or incomplete (usually empty)
- *   custom-models.json  → exclusive/hidden/preview models not in the API
- *
- * Merge order: models.json → apply patch.json → merge custom-models.json → transform to pi format
  *
  * Then use /model to select from available models like Kimi K2.5, Kimi K2.6, GLM 5, GLM 5.1,
  * Qwen3.5, GPT-OSS 20B, Devstral Small 2, and MiniMax M2.5.
@@ -45,126 +45,15 @@ import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
 import { streamOpenAICompletions } from "@mariozechner/pi-ai";
 import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ModelRegistry } from "@mariozechner/pi-coding-agent";
-import models from "./models.json" with { type: "json" };
-import customModels from "./custom-models.json" with { type: "json" };
-import patches from "./patch.json" with { type: "json" };
+import modelsData from "./models.json" with { type: "json" };
+import customModelsData from "./custom-models.json" with { type: "json" };
+import patchesData from "./patch.json" with { type: "json" };
 import { transformContextForImageLimit } from "./transform";
+import fs from "fs";
+import os from "os";
+import path from "path";
 
-// Suppress unused-import lint when patch.json is empty ({} resolves to void at runtime)
-void patches;
-
-// ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
-
-/**
- * Cached API key resolved from ModelRegistry.
- *
- * Pi's core resolves the key via ModelRegistry before calling our streamSimple
- * handler (passed as options.apiKey), but we also cache it here so we can
- * resolve it in contexts where options.apiKey isn't available (e.g. quota
- * fetching, future features) and to make the dependency explicit.
- *
- * Resolution order (via ModelRegistry.getApiKeyForProvider):
- *   1. Runtime override (CLI --api-key)
- *   2. auth.json stored credentials (manual entry in ~/.pi/agent/auth.json)
- *   3. OAuth tokens (auto-refreshed)
- *   4. Environment variable (from auth.json or provider config)
- */
-let cachedApiKey: string | undefined;
-
-/**
- * Resolve the Neuralwatt API key via ModelRegistry and cache the result.
- * Called on session_start and whenever ctx.modelRegistry is available.
- */
-async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
-  cachedApiKey = await modelRegistry.getApiKeyForProvider("neuralwatt") ?? undefined;
-}
-
-// ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
-
-/**
- * Per-request energy/cost event, persisted as a custom entry in the session.
- * On restore, we replay all entries in the current branch to rebuild totals.
- * This naturally handles branching, forking, and tree navigation.
- */
-interface EnergyEvent {
-  // Core totals (used for footer display)
-  energy_joules: number;
-  cost_usd: number;
-
-  // —— Energy detail ——
-  energy_kwh?: number;
-  avg_power_watts?: number;
-  duration_seconds?: number;
-  attribution_method?: string;
-  attribution_ratio?: number;
-  ratio_was_capped?: boolean;
-  uncapped_attribution_ratio?: number;
-  uncapped_energy_joules?: number;
-  uncapped_energy_kwh?: number;
-
-  // —— Cost detail ——
-  cache_savings_usd?: number;
-  allowance_remaining_usd?: number;
-  budget_remaining_usd?: number;
-}
-
-const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
-
-/** In-memory totals for the current branch (rebuilt on session_start / tree nav) */
-let sessionEnergyJoules = 0;
-let sessionCostUsd = 0;
-
-/** Pending per-request metrics — accumulated during streaming, persisted on turn_end */
-let pendingEnergyJoules = 0;
-let pendingCostUsd = 0;
-
-/** Full pending detail captured from SSE comments — persisted alongside totals on turn_end */
-let pendingDetail: Partial<EnergyEvent> = {};
-
-function resetSessionState() {
-  sessionEnergyJoules = 0;
-  sessionCostUsd = 0;
-  pendingEnergyJoules = 0;
-  pendingCostUsd = 0;
-  pendingDetail = {};
-  // Note: cachedApiKey is not reset here — it's auth config, not session state.
-  // It's re-resolved on session_start and session_tree events.
-}
-
-/**
- * Replay all energy events from the session branch to rebuild totals.
- */
-function replayEnergyEvents(ctx: any): void {
-  sessionEnergyJoules = 0;
-  sessionCostUsd = 0;
-  for (const entry of ctx.sessionManager.getBranch()) {
-    if (entry.type === "custom" && entry.customType === ENERGY_ENTRY_TYPE && entry.data) {
-      sessionEnergyJoules += entry.data.energy_joules || 0;
-      sessionCostUsd += entry.data.cost_usd || 0;
-    }
-  }
-}
-
-/**
- * Build the status text for the neuralwatt energy/cost indicator.
- */
-function buildEnergyStatusText(): string | undefined {
-  if (sessionEnergyJoules <= 0 && sessionCostUsd <= 0) return undefined;
-  const energyStr = formatEnergy(sessionEnergyJoules);
-  const costStr = formatCost(sessionCostUsd);
-  return `⚡${energyStr} ${costStr}`;
-}
-
-/**
- * Update the footer status indicator with current energy/cost totals.
- * Uses theme.fg("dim", ...) for grey text.
- */
-function updateEnergyStatus(ctx: any): void {
-  const text = buildEnergyStatusText();
-  ctx.ui.setStatus("neuralwatt", text ? ctx.ui.theme.fg("dim", text) : undefined);
-}
-
-// ─── Model Configuration ─────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NeuralwattModel {
   id: string;
@@ -189,31 +78,23 @@ interface NeuralwattModel {
   };
 }
 
-/**
- * Build the model list: regular models → apply patches → merge custom models → transform to pi format.
- * Regular models (models.json) now include pricing, capabilities, and limits from the API metadata.
- * Patches (patch.json) apply non-destructive overrides only where the API is wrong or incomplete.
- * Custom models (custom-models.json) take precedence over regular models with the same id,
- * and can also add models not present in the API (e.g., exclusive/preview models).
- */
+// ─── Model Building ───────────────────────────────────────────────────────────
+
 function buildModelList(
   regular: NeuralwattModel[],
   custom: NeuralwattModel[],
   patchList: Record<string, any> = {},
-): NeuralwattModel[] {
+): any[] {
   const modelMap = new Map<string, NeuralwattModel>();
 
-  // 1. Add regular models (from API)
   for (const model of regular) {
     modelMap.set(model.id, model);
   }
 
-  // 2. Add/override with custom models (exclusive, hidden, preview models)
   for (const model of custom) {
     modelMap.set(model.id, model);
   }
 
-  // 3. Apply patch overrides (deep-merge nested objects like compat, vision, cost)
   const NESTED_KEYS = new Set(["compat", "vision", "cost"]);
   for (const [id, patch] of Object.entries(patchList)) {
     const existing = modelMap.get(id);
@@ -230,46 +111,221 @@ function buildModelList(
     }
   }
 
-  return Array.from(modelMap.values());
+  return Array.from(modelMap.values()).map((model) => {
+    const result: any = {
+      id: model.id,
+      name: model.name,
+      reasoning: model.reasoning,
+      input: model.input,
+      cost: {
+        input: model.cost.input,
+        output: model.cost.output,
+        cacheRead: model.cost.cacheRead,
+        cacheWrite: model.cost.cacheWrite,
+      },
+      contextWindow: model.contextWindow,
+      maxTokens: model.maxTokens,
+    };
+    if (model.compat) {
+      result.compat = model.compat;
+    }
+    if (model.vision) {
+      result.vision = model.vision;
+    }
+    return result;
+  });
 }
 
-const piModels = buildModelList(
-  models as NeuralwattModel[],
-  customModels as NeuralwattModel[],
-  patches as Record<string, any>,
-).map((model) => {
-  const result: any = {
-    id: model.id,
-    name: model.name,
-    reasoning: model.reasoning,
-    input: model.input,
-    cost: {
-      input: model.cost.input,
-      output: model.cost.output,
-      cacheRead: model.cost.cacheRead,
-      cacheWrite: model.cost.cacheWrite,
-    },
-    contextWindow: model.contextWindow,
-    maxTokens: model.maxTokens,
-  };
-  if (model.compat) {
-    result.compat = model.compat;
+// ─── Stale-While-Revalidate Model Sync ────────────────────────────────────────
+
+const PROVIDER_ID = "neuralwatt";
+const BASE_URL = "https://api.neuralwatt.com/v1";
+const MODELS_URL = `${BASE_URL}/models`;
+const CACHE_DIR = path.join(os.homedir(), ".pi", "agent", "cache");
+const CACHE_PATH = path.join(CACHE_DIR, `${PROVIDER_ID}-models.json`);
+const LIVE_FETCH_TIMEOUT_MS = 8000;
+
+/** Transform a model from the Neuralwatt /v1/models API using metadata. */
+function transformApiModel(apiModel: any): NeuralwattModel | null {
+  const meta = apiModel.metadata || {};
+  const pricing = meta.pricing || {};
+  const caps = meta.capabilities || {};
+  const limits = meta.limits || {};
+
+  const hasVision = caps.vision === true;
+  const hasReasoning = caps.reasoning === true;
+
+  const inputTypes: ("text" | "image")[] = ["text"];
+  if (hasVision) {
+    inputTypes.push("image");
   }
-  if (model.vision) {
-    result.vision = model.vision;
+
+  const contextWindow = limits.max_context_length || apiModel.max_model_len || 131072;
+  const maxTokens = limits.max_output_tokens || contextWindow;
+
+  const model: NeuralwattModel = {
+    id: apiModel.id,
+    name: meta.display_name || apiModel.id,
+    reasoning: hasReasoning,
+    input: inputTypes,
+    cost: {
+      input: pricing.input_per_million ?? 0,
+      output: pricing.output_per_million ?? 0,
+      cacheRead: pricing.cached_input_per_million ?? 0,
+      cacheWrite: 0,
+    },
+    contextWindow,
+    maxTokens,
+  };
+
+  const compat: Record<string, any> = {};
+  if (caps.developer_role === false) {
+    compat.supportsDeveloperRole = false;
+  }
+  if (caps.reasoning_effort === true) {
+    compat.supportsReasoningEffort = true;
+  }
+  if (Object.keys(compat).length > 0) {
+    model.compat = compat as NeuralwattModel["compat"];
+  }
+
+  if (hasVision && limits.max_images != null) {
+    model.vision = { maxImagesPerRequest: limits.max_images };
+  }
+
+  return model;
+}
+
+async function fetchLiveModels(apiKey: string): Promise<NeuralwattModel[] | null> {
+  try {
+    const response = await fetch(MODELS_URL, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const apiModels = Array.isArray(data) ? data : (data.data || []);
+    if (!Array.isArray(apiModels) || apiModels.length === 0) return null;
+    return apiModels.map(transformApiModel).filter((m): m is NeuralwattModel => m !== null);
+  } catch {
+    return null;
+  }
+}
+
+function loadCachedModels(): NeuralwattModel[] | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(CACHE_PATH, "utf8"));
+    return Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+function cacheModels(models: NeuralwattModel[]): void {
+  try {
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(CACHE_PATH, JSON.stringify(models, null, 2) + "\n");
+  } catch {
+    // Cache write failure is non-fatal
+  }
+}
+
+function mergeWithEmbedded(liveModels: NeuralwattModel[], embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
+  const embeddedIds = new Set(embeddedModels.map(m => m.id));
+  const result = [...embeddedModels];
+  for (const model of liveModels) {
+    if (!embeddedIds.has(model.id)) {
+      result.push(model);
+    }
   }
   return result;
-});
+}
+
+function loadStaleModels(embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
+  const cached = loadCachedModels();
+  if (cached && cached.length > 0) return cached;
+  return embeddedModels;
+}
+
+async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[]): Promise<NeuralwattModel[] | null> {
+  if (!apiKey) return null;
+  const liveModels = await fetchLiveModels(apiKey);
+  if (!liveModels || liveModels.length === 0) return null;
+  const merged = mergeWithEmbedded(liveModels, embeddedModels);
+  cacheModels(merged);
+  return merged;
+}
+
+// ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
+
+let cachedApiKey: string | undefined;
+
+async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
+  cachedApiKey = await modelRegistry.getApiKeyForProvider("neuralwatt") ?? undefined;
+}
+
+// ─── Session State (event-sourced via pi.appendEntry) ─────────────────────────
+
+interface EnergyEvent {
+  energy_joules: number;
+  cost_usd: number;
+  energy_kwh?: number;
+  avg_power_watts?: number;
+  duration_seconds?: number;
+  attribution_method?: string;
+  attribution_ratio?: number;
+  ratio_was_capped?: boolean;
+  uncapped_attribution_ratio?: number;
+  uncapped_energy_joules?: number;
+  uncapped_energy_kwh?: number;
+  cache_savings_usd?: number;
+  allowance_remaining_usd?: number;
+  budget_remaining_usd?: number;
+}
+
+const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
+
+let sessionEnergyJoules = 0;
+let sessionCostUsd = 0;
+let pendingEnergyJoules = 0;
+let pendingCostUsd = 0;
+let pendingDetail: Partial<EnergyEvent> = {};
+
+function resetSessionState() {
+  sessionEnergyJoules = 0;
+  sessionCostUsd = 0;
+  pendingEnergyJoules = 0;
+  pendingCostUsd = 0;
+  pendingDetail = {};
+}
+
+function replayEnergyEvents(ctx: any): void {
+  sessionEnergyJoules = 0;
+  sessionCostUsd = 0;
+  for (const entry of ctx.sessionManager.getBranch()) {
+    if (entry.type === "custom" && entry.customType === ENERGY_ENTRY_TYPE && entry.data) {
+      sessionEnergyJoules += entry.data.energy_joules || 0;
+      sessionCostUsd += entry.data.cost_usd || 0;
+    }
+  }
+}
+
+function buildEnergyStatusText(): string | undefined {
+  if (sessionEnergyJoules <= 0 && sessionCostUsd <= 0) return undefined;
+  const energyStr = formatEnergy(sessionEnergyJoules);
+  const costStr = formatCost(sessionCostUsd);
+  return `⚡${energyStr} ${costStr}`;
+}
+
+function updateEnergyStatus(ctx: any): void {
+  const text = buildEnergyStatusText();
+  ctx.ui.setStatus("neuralwatt", text ? ctx.ui.theme.fg("dim", text) : undefined);
+}
 
 // ─── Energy Formatting ────────────────────────────────────────────────────────
 
-/**
- * Format energy in Joules to the most readable unit.
- * Uses: J → mWh → Wh → kWh with appropriate precision.
- */
 function formatEnergy(joules: number): string {
   if (joules === 0) return "0J";
-  // 1 Wh = 3600 J, 1 mWh = 3.6 J, 1 kWh = 3,600,000 J
   if (joules < 3.6) {
     return joules < 10 ? `${joules.toFixed(1)}J` : `${Math.round(joules)}J`;
   }
@@ -285,9 +341,6 @@ function formatEnergy(joules: number): string {
   return `${kwh.toFixed(2)}kWh`;
 }
 
-/**
- * Format cost in USD. Shows appropriate precision for small amounts.
- */
 function formatCost(usd: number): string {
   if (usd === 0) return "$0";
   if (usd < 0.000001) return `$${usd.toExponential(1)}`;
@@ -298,10 +351,6 @@ function formatCost(usd: number): string {
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
-/**
- * Read SSE comment lines (`: energy {...}`, `: cost {...}`) from a tee'd response body.
- * Runs concurrently with the OpenAI SDK's consumption of the original stream.
- */
 async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -355,23 +404,11 @@ async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void
 
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
 
-const BASE_URL = "https://api.neuralwatt.com/v1";
-
-/**
- * Neuralwatt's custom stream handler.
- *
- * Wraps pi-ai's built-in `streamOpenAICompletions` with a temporary `globalThis.fetch`
- * override that tees the HTTP response body. This lets the OpenAI SDK handle all
- * standard chunk parsing (text, thinking, tool calls, usage) while we read the
- * tee for Neuralwatt's SSE comment lines (`: energy`, `: cost`) that the SDK discards.
- */
 function streamNeuralwatt(
   model: any,
   context: any,
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
-  // Pi's core resolves via ModelRegistry before calling streamSimple (options.apiKey).
-  // cachedApiKey is our own ModelRegistry-resolved copy (resolved on session_start).
   const apiKey = options?.apiKey || cachedApiKey || "";
   if (!apiKey) {
     throw new Error(
@@ -380,21 +417,16 @@ function streamNeuralwatt(
     );
   }
 
-  // Apply per-model image limit by dropping oldest images (FIFO)
   const maxImages = model.vision?.maxImagesPerRequest as number | undefined;
   const transformedContext = transformContextForImageLimit(context, maxImages);
 
-  // Ensure the model uses openai-completions API so streamOpenAICompletions works
   const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
 
-  // Temporarily override globalThis.fetch to tee the response body.
-  // The SDK consumes one branch; we read the other for SSE comments.
   const originalFetch = globalThis.fetch;
   let teeReader: Promise<void> | undefined;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await originalFetch(input, init);
-    // Only tee streaming responses to Neuralwatt's chat completions endpoint
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (response.body && url.includes("/chat/completions")) {
       const [bodyForSdk, bodyForEnergy] = response.body.tee();
@@ -405,17 +437,14 @@ function streamNeuralwatt(
   };
 
   try {
-    // Delegate all chunk parsing to the built-in handler
     const stream = streamOpenAICompletions(neuralwattModel, transformedContext, {
       ...options,
       apiKey,
     });
 
-    // When the stream ends, restore fetch and wait for our tee reader to finish
     const originalEnd = stream.end.bind(stream);
     stream.end = (result?: any) => {
       globalThis.fetch = originalFetch;
-      // Don't block the stream end on our tee reader — it should finish around the same time
       if (teeReader) {
         teeReader.catch(() => {});
       }
@@ -432,16 +461,39 @@ function streamNeuralwatt(
 // ─── Extension Entry Point ────────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  // Register provider with custom stream handler
+  const embeddedModels = modelsData as NeuralwattModel[];
+  const customModels = customModelsData as NeuralwattModel[];
+  const patches = patchesData as Record<string, any>;
+
+  // SWR: Serve stale immediately (cache → embedded)
+  const staleBase = loadStaleModels(embeddedModels);
+  const staleModels = buildModelList(staleBase, customModels, patches);
+
   pi.registerProvider("neuralwatt", {
     baseUrl: BASE_URL,
     apiKey: "NEURALWATT_API_KEY",
     api: "neuralwatt",
-    models: piModels,
+    models: staleModels,
     streamSimple: streamNeuralwatt,
   });
 
-  // After each turn: persist pending energy event (totals + full detail), update status
+  // Revalidate in background on session_start
+  pi.on("session_start", async (_event, ctx) => {
+    resetSessionState();
+    await resolveApiKey(ctx.modelRegistry);
+    replayEnergyEvents(ctx);
+    updateEnergyStatus(ctx);
+
+    revalidateModels(cachedApiKey, embeddedModels).then((freshBase) => {
+      if (freshBase) {
+        pi.registerProvider("neuralwatt", {
+          models: buildModelList(freshBase, customModels, patches),
+          streamSimple: streamNeuralwatt,
+        });
+      }
+    });
+  });
+
   pi.on("turn_end", async (_event, ctx) => {
     if (pendingEnergyJoules > 0 || pendingCostUsd > 0) {
       const entry: EnergyEvent = {
@@ -459,15 +511,6 @@ export default function (pi: ExtensionAPI) {
     updateEnergyStatus(ctx);
   });
 
-  // On session start/resume: resolve API key via ModelRegistry, replay energy events
-  pi.on("session_start", async (_event, ctx) => {
-    resetSessionState();
-    await resolveApiKey(ctx.modelRegistry);
-    replayEnergyEvents(ctx);
-    updateEnergyStatus(ctx);
-  });
-
-  // On tree navigation: replay energy events for the new branch
   pi.on("session_tree", async (_event, ctx) => {
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
