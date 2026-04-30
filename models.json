@@ -168,7 +168,7 @@
   {
     "id": "kimi-k2.6-fast",
     "name": "Kimi K2.6 Fast",
-    "reasoning": true,
+    "reasoning": false,
     "input": [
       "text",
       "image"
@@ -250,7 +250,8 @@
     "name": "Qwen3.6 35B",
     "reasoning": true,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
       "input": 0.05,
@@ -262,6 +263,9 @@
     "maxTokens": 131072,
     "compat": {
       "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 4
     }
   },
   {
@@ -269,7 +273,8 @@
     "name": "Qwen3.6 35B Fast",
     "reasoning": false,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
       "input": 0.05,
@@ -281,6 +286,9 @@
     "maxTokens": 131072,
     "compat": {
       "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 4
     }
   }
 ]
