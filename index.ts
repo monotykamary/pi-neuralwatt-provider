@@ -196,11 +196,11 @@ function transformApiModel(apiModel: any): NeuralwattModel | null {
   return model;
 }
 
-async function fetchLiveModels(apiKey: string): Promise<NeuralwattModel[] | null> {
+async function fetchLiveModels(apiKey: string, signal?: AbortSignal): Promise<NeuralwattModel[] | null> {
   try {
     const response = await fetch(MODELS_URL, {
       headers: { Authorization: `Bearer ${apiKey}` },
-      signal: AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS),
+      signal: signal ? AbortSignal.any([AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS), signal]) : AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) return null;
     const data = await response.json();
@@ -247,9 +247,9 @@ function loadStaleModels(embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
   return embeddedModels;
 }
 
-async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[]): Promise<NeuralwattModel[] | null> {
+async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[], signal?: AbortSignal): Promise<NeuralwattModel[] | null> {
   if (!apiKey) return null;
-  const liveModels = await fetchLiveModels(apiKey);
+  const liveModels = await fetchLiveModels(apiKey, signal);
   if (!liveModels || liveModels.length === 0) return null;
   const merged = mergeWithEmbedded(liveModels, embeddedModels);
   cacheModels(merged);
@@ -259,6 +259,7 @@ async function revalidateModels(apiKey: string | undefined, embeddedModels: Neur
 // ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
 
 let cachedApiKey: string | undefined;
+let revalidateAbort: AbortController | null = null;
 
 async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
   cachedApiKey = await modelRegistry.getApiKeyForProvider("neuralwatt") ?? undefined;
@@ -479,13 +480,16 @@ export default function (pi: ExtensionAPI) {
 
   // Revalidate in background on session_start
   pi.on("session_start", async (_event, ctx) => {
+    revalidateAbort?.abort();
+    revalidateAbort = new AbortController();
+    const signal = revalidateAbort.signal;
     resetSessionState();
     await resolveApiKey(ctx.modelRegistry);
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
 
-    revalidateModels(cachedApiKey, embeddedModels).then((freshBase) => {
-      if (freshBase) {
+    revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
+      if (freshBase && !signal.aborted) {
         pi.registerProvider("neuralwatt", {
           baseUrl: BASE_URL,
           apiKey: "NEURALWATT_API_KEY",
@@ -495,6 +499,10 @@ export default function (pi: ExtensionAPI) {
         });
       }
     });
+  });
+
+  pi.on("session_shutdown", () => {
+    revalidateAbort?.abort();
   });
 
   pi.on("turn_end", async (_event, ctx) => {
