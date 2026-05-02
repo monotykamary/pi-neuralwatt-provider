@@ -78,36 +78,57 @@ interface NeuralwattModel {
   };
 }
 
-// ─── Model Building ───────────────────────────────────────────────────────────
+// ─── Patch & Custom Model Merging ─────────────────────────────────────────────
 
-function buildModelList(
-  regular: NeuralwattModel[],
+function applyPatch(model: NeuralwattModel, patch: Record<string, any>): NeuralwattModel {
+  const result = { ...model };
+  const NESTED_KEYS = new Set(["compat", "vision", "cost"]);
+  for (const [key, value] of Object.entries(patch)) {
+    if (NESTED_KEYS.has(key) && typeof value === "object" && value !== null && typeof (result as any)[key] === "object") {
+      (result as any)[key] = { ...(result as any)[key], ...value };
+    } else {
+      (result as any)[key] = value;
+    }
+  }
+  if (!result.reasoning && result.compat?.thinkingFormat) {
+    delete result.compat.thinkingFormat;
+  }
+  if (result.compat && Object.keys(result.compat).length === 0) {
+    delete result.compat;
+  }
+  return result;
+}
+
+/** Full pipeline: base → patch → custom → result */
+function buildModels(
+  base: NeuralwattModel[],
   custom: NeuralwattModel[],
-  patchList: Record<string, any> = {},
-): any[] {
+  patchList: Record<string, any>,
+): NeuralwattModel[] {
   const modelMap = new Map<string, NeuralwattModel>();
 
-  for (const model of regular) {
+  for (const model of base) {
     modelMap.set(model.id, model);
+  }
+
+  for (const [id, patchEntry] of Object.entries(patchList)) {
+    const existing = modelMap.get(id);
+    if (existing) {
+      modelMap.set(id, applyPatch(existing, patchEntry));
+    }
   }
 
   for (const model of custom) {
-    modelMap.set(model.id, model);
-  }
-
-  const NESTED_KEYS = new Set(["compat", "vision", "cost"]);
-  for (const [id, patch] of Object.entries(patchList)) {
-    const existing = modelMap.get(id);
-    if (existing) {
-      const merged = { ...existing };
-      for (const [key, value] of Object.entries(patch)) {
-        if (NESTED_KEYS.has(key) && typeof value === "object" && value !== null && typeof (merged as any)[key] === "object") {
-          (merged as any)[key] = { ...(merged as any)[key], ...value };
-        } else {
-          (merged as any)[key] = value;
-        }
-      }
-      modelMap.set(id, merged);
+    const existing = modelMap.get(model.id);
+    const patchEntry = patchList[model.id];
+    if (existing && patchEntry) {
+      modelMap.set(model.id, applyPatch(model, patchEntry));
+    } else if (existing) {
+      modelMap.set(model.id, model);
+    } else if (patchEntry) {
+      modelMap.set(model.id, applyPatch(model, patchEntry));
+    } else {
+      modelMap.set(model.id, model);
     }
   }
 
@@ -468,7 +489,7 @@ export default function (pi: ExtensionAPI) {
 
   // SWR: Serve stale immediately (cache → embedded)
   const staleBase = loadStaleModels(embeddedModels);
-  const staleModels = buildModelList(staleBase, customModels, patches);
+  const staleModels = buildModels(staleBase, customModels, patches);
 
   pi.registerProvider("neuralwatt", {
     baseUrl: BASE_URL,
@@ -494,7 +515,7 @@ export default function (pi: ExtensionAPI) {
           baseUrl: BASE_URL,
           apiKey: "NEURALWATT_API_KEY",
           api: "neuralwatt",
-          models: buildModelList(freshBase, customModels, patches),
+          models: buildModels(freshBase, customModels, patches),
           streamSimple: streamNeuralwatt,
         });
       }

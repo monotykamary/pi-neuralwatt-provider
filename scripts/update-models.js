@@ -147,21 +147,49 @@ const NESTED_PATCH_KEYS = new Set(['compat', 'vision', 'cost']);
  * Deep-merges nested objects (compat, vision, cost).
  */
 function applyPatchToModel(model, overrides) {
-  if (!overrides) return;
+  if (!overrides) return model;
+  const result = { ...model };
   for (const [key, value] of Object.entries(overrides)) {
-    if (NESTED_PATCH_KEYS.has(key) && typeof value === 'object' && value !== null && typeof model[key] === 'object') {
-      model[key] = { ...model[key], ...value };
+    if (NESTED_PATCH_KEYS.has(key) && typeof value === 'object' && value !== null && typeof result[key] === 'object') {
+      result[key] = { ...result[key], ...value };
     } else {
-      model[key] = value;
+      result[key] = value;
     }
   }
-  // Clean up: don't leave thinkingFormat on non-reasoning models
-  if (!model.reasoning && model.compat?.thinkingFormat) {
-    delete model.compat.thinkingFormat;
+  if (!result.reasoning && result.compat?.thinkingFormat) {
+    delete result.compat.thinkingFormat;
   }
-  if (model.compat && Object.keys(model.compat).length === 0) {
-    delete model.compat;
+  if (result.compat && Object.keys(result.compat).length === 0) {
+    delete result.compat;
   }
+  return result;
+}
+
+function buildModels(baseModels, customModels, patchData) {
+  const modelMap = new Map();
+  for (const model of baseModels) {
+    modelMap.set(model.id, model);
+  }
+  for (const [id, patchEntry] of Object.entries(patchData)) {
+    const existing = modelMap.get(id);
+    if (existing) {
+      modelMap.set(id, applyPatchToModel(existing, patchEntry));
+    }
+  }
+  for (const model of customModels) {
+    const existing = modelMap.get(model.id);
+    const patchEntry = patchData[model.id];
+    if (existing && patchEntry) {
+      modelMap.set(model.id, applyPatchToModel(model, patchEntry));
+    } else if (existing) {
+      modelMap.set(model.id, model);
+    } else if (patchEntry) {
+      modelMap.set(model.id, applyPatchToModel(model, patchEntry));
+    } else {
+      modelMap.set(model.id, model);
+    }
+  }
+  return Array.from(modelMap.values());
 }
 
 /**
@@ -330,16 +358,8 @@ async function main() {
       console.log(`✓ Removed ${duplicates.length} duplicate(s) from custom-models.json`);
     }
 
-    // Build merged list: upstream + custom (custom takes precedence on overlap)
-    const mergedMap = new Map();
-    for (const model of transformedModels) {
-      mergedMap.set(model.id, model);
-    }
-    for (const model of customModels) {
-      applyPatchToModel(model, patch[model.id]);
-      mergedMap.set(model.id, model);
-    }
-    const allModels = Array.from(mergedMap.values());
+    // Build merged list: base → patch → custom (custom takes precedence on overlap)
+    const allModels = buildModels(transformedModels, customModels, patch);
     console.log(
       `Total: ${allModels.length} models (${transformedModels.length} upstream + ${customModels.length} custom)`
     );
