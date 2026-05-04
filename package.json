@@ -13,7 +13,8 @@
     "test:watch": "vitest",
     "probe:image-limit": "node scripts/test-image-limit.mjs",
     "probe:image-limit-stream": "node scripts/test-image-limit-stream.mjs",
-    "probe:vision-models": "node scripts/probe-vision-models.mjs"
+    "probe:vision-models": "node scripts/probe-vision-models.mjs",
+    "update-models": "node scripts/update-models.js"
   },
   "keywords": [
     "pi",
