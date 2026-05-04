@@ -70,8 +70,10 @@ interface NeuralwattModel {
   maxTokens: number;
   compat?: {
     supportsDeveloperRole?: boolean;
-    supportsReasoningEffort?: boolean;
+    supportsStore?: boolean;
+    maxTokensField?: "max_completion_tokens" | "max_tokens";
     thinkingFormat?: "openai" | "openrouter" | "zai" | "qwen" | "qwen-chat-template";
+    supportsReasoningEffort?: boolean;
   };
   vision?: {
     maxImagesPerRequest?: number;
@@ -199,7 +201,7 @@ function transformApiModel(apiModel: any): NeuralwattModel | null {
     maxTokens,
   };
 
-  const compat: Record<string, any> = {};
+  const compat: NeuralwattModel["compat"] = {};
   if (caps.developer_role === false) {
     compat.supportsDeveloperRole = false;
   }
@@ -207,7 +209,7 @@ function transformApiModel(apiModel: any): NeuralwattModel | null {
     compat.supportsReasoningEffort = true;
   }
   if (Object.keys(compat).length > 0) {
-    model.compat = compat as NeuralwattModel["compat"];
+    model.compat = compat;
   }
 
   if (hasVision && limits.max_images != null) {
