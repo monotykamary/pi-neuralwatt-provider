@@ -41,10 +41,10 @@
  * @see https://neuralwatt.com
  */
 
-import type { SimpleStreamOptions } from "@mariozechner/pi-ai";
-import { streamOpenAICompletions } from "@mariozechner/pi-ai";
-import type { AssistantMessageEventStream } from "@mariozechner/pi-ai";
-import type { ExtensionAPI, ModelRegistry } from "@mariozechner/pi-coding-agent";
+import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
+import { streamOpenAICompletions } from "@earendil-works/pi-ai";
+import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchesData from "./patch.json" with { type: "json" };
