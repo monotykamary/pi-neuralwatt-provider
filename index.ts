@@ -349,20 +349,20 @@ function updateEnergyStatus(ctx: any): void {
 // ─── Energy Formatting ────────────────────────────────────────────────────────
 
 function formatEnergy(joules: number): string {
-  if (joules === 0) return "0J";
+  if (joules === 0) return "0 J";
   if (joules < 3.6) {
-    return joules < 10 ? `${joules.toFixed(1)}J` : `${Math.round(joules)}J`;
+    return joules < 10 ? `${joules.toFixed(1)} J` : `${Math.round(joules)} J`;
   }
   const mwh = joules / 3600;
   if (mwh < 1000) {
-    return mwh < 10 ? `${mwh.toFixed(1)}mWh` : `${Math.round(mwh)}mWh`;
+    return mwh < 10 ? `${mwh.toFixed(1)} mWh` : `${Math.round(mwh)} mWh`;
   }
   const wh = mwh / 1000;
   if (wh < 1000) {
-    return wh < 10 ? `${wh.toFixed(1)}Wh` : `${Math.round(wh)}Wh`;
+    return wh < 10 ? `${wh.toFixed(1)} Wh` : `${Math.round(wh)} Wh`;
   }
   const kwh = wh / 1000;
-  return `${kwh.toFixed(2)}kWh`;
+  return `${kwh.toFixed(2)} kWh`;
 }
 
 function formatCost(usd: number): string {
