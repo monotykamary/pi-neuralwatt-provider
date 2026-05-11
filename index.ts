@@ -314,8 +314,14 @@ let sessionCostUsd = 0;
 let pendingEnergyJoules = 0;
 let pendingCostUsd = 0;
 let pendingDetail: Partial<EnergyEvent> = {};
+let teeReader: Promise<void> | undefined;
 
-function resetSessionState() {
+// Exposed for testing
+export function getPendingState() {
+  return { pendingEnergyJoules, pendingCostUsd, pendingDetail, teeReader };
+}
+
+export function resetSessionState() {
   sessionEnergyJoules = 0;
   sessionCostUsd = 0;
   pendingEnergyJoules = 0;
@@ -375,10 +381,41 @@ function formatCost(usd: number): string {
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
-async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
+export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  function processLine(line: string): void {
+    const trimmed = line.trim();
+    if (trimmed.startsWith(": energy ")) {
+      try {
+        const energy = JSON.parse(trimmed.slice(9));
+        pendingEnergyJoules += energy.energy_joules || 0;
+        pendingDetail.energy_kwh = energy.energy_kwh ?? pendingDetail.energy_kwh;
+        pendingDetail.avg_power_watts = energy.avg_power_watts ?? pendingDetail.avg_power_watts;
+        pendingDetail.duration_seconds = energy.duration_seconds ?? pendingDetail.duration_seconds;
+        pendingDetail.attribution_method = energy.attribution_method ?? pendingDetail.attribution_method;
+        pendingDetail.attribution_ratio = energy.attribution_ratio ?? pendingDetail.attribution_ratio;
+        pendingDetail.ratio_was_capped = energy.ratio_was_capped ?? pendingDetail.ratio_was_capped;
+        pendingDetail.uncapped_attribution_ratio = energy.uncapped_attribution_ratio ?? pendingDetail.uncapped_attribution_ratio;
+        pendingDetail.uncapped_energy_joules = energy.uncapped_energy_joules ?? pendingDetail.uncapped_energy_joules;
+        pendingDetail.uncapped_energy_kwh = energy.uncapped_energy_kwh ?? pendingDetail.uncapped_energy_kwh;
+      } catch {
+        // Malformed energy comment, ignore
+      }
+    } else if (trimmed.startsWith(": cost ")) {
+      try {
+        const cost = JSON.parse(trimmed.slice(7));
+        pendingCostUsd += cost.request_cost_usd || 0;
+        pendingDetail.cache_savings_usd = cost.cache_savings_usd ?? pendingDetail.cache_savings_usd;
+        pendingDetail.allowance_remaining_usd = cost.allowance_remaining_usd ?? pendingDetail.allowance_remaining_usd;
+        pendingDetail.budget_remaining_usd = cost.budget_remaining_usd ?? pendingDetail.budget_remaining_usd;
+      } catch {
+        // Malformed cost comment, ignore
+      }
+    }
+  }
 
   try {
     while (true) {
@@ -390,39 +427,24 @@ async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void
       buffer = lines.pop() || "";
 
       for (const line of lines) {
-        const trimmed = line.trim();
-
-        if (trimmed.startsWith(": energy ")) {
-          try {
-            const energy = JSON.parse(trimmed.slice(9));
-            pendingEnergyJoules += energy.energy_joules || 0;
-            pendingDetail.energy_kwh = energy.energy_kwh ?? pendingDetail.energy_kwh;
-            pendingDetail.avg_power_watts = energy.avg_power_watts ?? pendingDetail.avg_power_watts;
-            pendingDetail.duration_seconds = energy.duration_seconds ?? pendingDetail.duration_seconds;
-            pendingDetail.attribution_method = energy.attribution_method ?? pendingDetail.attribution_method;
-            pendingDetail.attribution_ratio = energy.attribution_ratio ?? pendingDetail.attribution_ratio;
-            pendingDetail.ratio_was_capped = energy.ratio_was_capped ?? pendingDetail.ratio_was_capped;
-            pendingDetail.uncapped_attribution_ratio = energy.uncapped_attribution_ratio ?? pendingDetail.uncapped_attribution_ratio;
-            pendingDetail.uncapped_energy_joules = energy.uncapped_energy_joules ?? pendingDetail.uncapped_energy_joules;
-            pendingDetail.uncapped_energy_kwh = energy.uncapped_energy_kwh ?? pendingDetail.uncapped_energy_kwh;
-          } catch {
-            // Malformed energy comment, ignore
-          }
-        } else if (trimmed.startsWith(": cost ")) {
-          try {
-            const cost = JSON.parse(trimmed.slice(7));
-            pendingCostUsd += cost.request_cost_usd || 0;
-            pendingDetail.cache_savings_usd = cost.cache_savings_usd ?? pendingDetail.cache_savings_usd;
-            pendingDetail.allowance_remaining_usd = cost.allowance_remaining_usd ?? pendingDetail.allowance_remaining_usd;
-            pendingDetail.budget_remaining_usd = cost.budget_remaining_usd ?? pendingDetail.budget_remaining_usd;
-          } catch {
-            // Malformed cost comment, ignore
-          }
-        }
+        processLine(line);
       }
     }
   } catch {
     // Tee stream may error if the main stream is aborted — that's fine
+  }
+
+  // Flush any trailing bytes in the decoder and process the final line
+  const final = decoder.decode(new Uint8Array(0), { stream: false });
+  const remaining = (buffer + final).trim();
+  if (remaining) {
+    processLine(remaining);
+  }
+
+  try {
+    reader.releaseLock();
+  } catch {
+    // Ignore
   }
 }
 
@@ -447,7 +469,6 @@ function streamNeuralwatt(
   const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
 
   const originalFetch = globalThis.fetch;
-  let teeReader: Promise<void> | undefined;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await originalFetch(input, init);
@@ -529,6 +550,18 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("turn_end", async (_event, ctx) => {
+    // Ensure the energy tee reader has finished before committing.
+    // For long or stalled turns, the final SSE energy comment may arrive
+    // after stream.end() but before the reader resolves.
+    if (teeReader) {
+      try {
+        await teeReader;
+      } catch {
+        // Tee stream may error if the main stream was aborted
+      }
+      teeReader = undefined;
+    }
+
     if (pendingEnergyJoules > 0 || pendingCostUsd > 0) {
       const entry: EnergyEvent = {
         energy_joules: pendingEnergyJoules,
