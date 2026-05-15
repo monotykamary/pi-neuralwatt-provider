@@ -17,9 +17,9 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 | Model | Context | Vision | Reasoning | Input $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|------------|
 | Devstral-Small-2-24B-Instruct-2512 | 262K | ✅ | ❌ | $0.12 | $0.35 |
-| GLM-5 Fast | 200K | ❌ | ❌ | $1.10 | $3.60 |
-| GLM-5.1 | 200K | ❌ | ✅ | $1.10 | $3.60 |
-| GLM-5.1 Fast | 200K | ❌ | ❌ | $1.10 | $3.60 |
+| GLM-5 Fast | 203K | ❌ | ❌ | $1.10 | $3.60 |
+| GLM-5.1 | 203K | ❌ | ✅ | $1.10 | $3.60 |
+| GLM-5.1 Fast | 203K | ❌ | ❌ | $1.10 | $3.60 |
 | GPT-OSS 20B | 16K | ❌ | ✅ | $0.03 | $0.16 |
 | Kimi K2.5 | 262K | ✅ | ✅ | $0.52 | $2.59 |
 | Kimi K2.5 Fast | 262K | ✅ | ❌ | $0.52 | $2.59 |

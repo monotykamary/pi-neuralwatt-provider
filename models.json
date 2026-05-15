@@ -13,8 +13,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -32,8 +32,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 200000,
-    "maxTokens": 200000,
+    "contextWindow": 202736,
+    "maxTokens": 202736,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -51,8 +51,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 200000,
-    "maxTokens": 200000,
+    "contextWindow": 202736,
+    "maxTokens": 202736,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -70,8 +70,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 200000,
-    "maxTokens": 200000,
+    "contextWindow": 202736,
+    "maxTokens": 202736,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -89,8 +89,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 16384,
-    "maxTokens": 16384,
+    "contextWindow": 16368,
+    "maxTokens": 16368,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
@@ -110,8 +110,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     },
@@ -133,8 +133,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     },
@@ -156,8 +156,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     },
@@ -179,8 +179,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     },
@@ -201,8 +201,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 196608,
-    "maxTokens": 196608,
+    "contextWindow": 196592,
+    "maxTokens": 196592,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -220,8 +220,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -239,8 +239,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 262144,
-    "maxTokens": 262144,
+    "contextWindow": 262128,
+    "maxTokens": 262128,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -259,8 +259,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 131072,
-    "maxTokens": 131072,
+    "contextWindow": 131056,
+    "maxTokens": 131056,
     "compat": {
       "supportsDeveloperRole": false
     },
@@ -282,8 +282,8 @@
       "cacheRead": 0,
       "cacheWrite": 0
     },
-    "contextWindow": 131072,
-    "maxTokens": 131072,
+    "contextWindow": 131056,
+    "maxTokens": 131056,
     "compat": {
       "supportsDeveloperRole": false
     },
