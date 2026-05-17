@@ -30,6 +30,8 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 | Qwen3.5 397B Fast | 262K | ❌ | ❌ | $0.69 | $4.14 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.05 | $0.10 |
 | Qwen3.6 35B Fast | 131K | ✅ | ❌ | $0.05 | $0.10 |
+| GLM-5.1 Canary | 203K | ❌ | ✅ | $1.10 | $3.60 |
+| Kimi K2.6 Canary | 262K | ✅ | ✅ | $0.69 | $3.22 |
 
 ## Authentication
 

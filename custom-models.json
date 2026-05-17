@@ -1,1 +1,44 @@
-[]
+[
+  {
+    "id": "glm-5.1-canary",
+    "name": "GLM-5.1 Canary",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202736,
+    "maxTokens": 202736,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "kimi-k2.6-canary",
+    "name": "Kimi K2.6 Canary",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 3.22,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 262128,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  }
+]
