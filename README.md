@@ -146,7 +146,11 @@ Values: `none`, `low`, `medium`, `high`
 
 ## Energy Reporting
 
-Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in a dedicated status widget between the editor and the pi footer:
+Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays it inline in the pi status widget:
+
+![Energy Reporting Status Widget](assets/screenshot.jpg)
+
+The status widget only appears once your session has Neuralwatt energy consumption, so it stays hidden when using other providers. This extension captures it and displays a running total in a dedicated status widget between the editor and the pi footer:
 
 ```
 ⚡208.89 mWh $1.04                                                                  pro ● 31.7/33.0 kWh ∙ $64.55
