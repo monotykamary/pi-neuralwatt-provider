@@ -443,10 +443,11 @@ function buildQuotaStatusText(): string | undefined {
   // Key allowance (if set)
   if (q.key.allowance) {
     const a = q.key.allowance;
+    const spent = a.limit_usd - a.remaining_usd;
     const periodLabel = { daily: "d", weekly: "wk", monthly: "mo" }[a.period] ?? a.period;
-    parts.push(`🔑 ${formatCost(a.remaining_usd)}/${formatCost(a.limit_usd)}/${periodLabel}`);
+    parts.push(`key ${formatCost(spent)}/${formatCost(a.limit_usd)}/${periodLabel}`);
     if (a.blocked) {
-      parts.push("⛔");
+      parts.push("⊘");
     }
   }
 
