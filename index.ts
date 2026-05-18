@@ -445,7 +445,7 @@ function buildQuotaStatusText(): string | undefined {
     const a = q.key.allowance;
     const spent = a.limit_usd - a.remaining_usd;
     const periodLabel = { daily: "d", weekly: "wk", monthly: "mo" }[a.period] ?? a.period;
-    parts.push(`∙ ⚷ ${formatCost(spent)}/${formatCost(a.limit_usd)}`);
+    parts.push(`∙ ⚷ ${formatCost(spent)}/${formatCost(a.limit_usd)}/${periodLabel}`);
     if (a.blocked) {
       parts.push("⊘");
     }
