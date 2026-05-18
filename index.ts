@@ -354,9 +354,205 @@ function buildEnergyStatusText(): string | undefined {
   return `⚡${energyStr} ${costStr}`;
 }
 
+// ─── Quota Fetching ──────────────────────────────────────────────────────────
+
+interface QuotaResponse {
+  snapshot_at: string;
+  balance: {
+    credits_remaining_usd: number;
+    total_credits_usd: number;
+    credits_used_usd: number;
+    accounting_method: string;
+  };
+  usage: {
+    lifetime: { cost_usd: number; requests: number; tokens: number; energy_kwh: number };
+    current_month: { cost_usd: number; requests: number; tokens: number; energy_kwh: number };
+  };
+  limits: {
+    overage_limit_usd: number | null;
+    rate_limit_tier: string;
+  };
+  subscription: {
+    plan: string;
+    status: string;
+    billing_interval: string | null;
+    current_period_start: string | null;
+    current_period_end: string | null;
+    auto_renew: boolean | null;
+    kwh_included: number | null;
+    kwh_used: number | null;
+    kwh_remaining: number | null;
+    in_overage: boolean | null;
+  };
+  key: {
+    name: string | null;
+    allowance: {
+      limit_usd: number;
+      period: string;
+      spent_usd: number;
+      remaining_usd: number;
+      blocked: boolean;
+    } | null;
+  };
+}
+
+let cachedQuota: QuotaResponse | null = null;
+
+async function fetchQuota(apiKey: string, signal?: AbortSignal): Promise<QuotaResponse | null> {
+  try {
+    const response = await fetch(`${BASE_URL}/quota`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: signal ? AbortSignal.any([AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS), signal]) : AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return await response.json() as QuotaResponse;
+  } catch {
+    return null;
+  }
+}
+
+function buildQuotaStatusText(): string | undefined {
+  if (!cachedQuota) return undefined;
+  const q = cachedQuota;
+  const parts: string[] = [];
+
+  // Plan name
+  parts.push(q.subscription.plan);
+
+  // Status indicator
+  if (q.subscription.status === "active") {
+    parts.push("●");
+  } else if (q.subscription.status === "past_due" || q.subscription.status === "paused") {
+    parts.push("⊘");
+  } else {
+    parts.push(`●${q.subscription.status}`);
+  }
+
+  // kWh allocation
+  if (q.subscription.kwh_included != null && q.subscription.kwh_remaining != null) {
+    const kwhUsed = q.subscription.kwh_used ?? 0;
+    parts.push(`${formatKwh(q.subscription.kwh_remaining)}/${formatKwh(q.subscription.kwh_included)} kWh`);
+    if (q.subscription.in_overage) {
+      parts.push("⚠");
+    }
+  }
+
+  // Credits remaining
+  parts.push(`∙ ${formatCost(q.balance.credits_remaining_usd)}`);
+
+  // Key allowance (if set)
+  if (q.key.allowance) {
+    const a = q.key.allowance;
+    const periodLabel = { daily: "d", weekly: "wk", monthly: "mo" }[a.period] ?? a.period;
+    parts.push(`🔑 ${formatCost(a.remaining_usd)}/${formatCost(a.limit_usd)}/${periodLabel}`);
+    if (a.blocked) {
+      parts.push("⛔");
+    }
+  }
+
+  return parts.join(" ");
+}
+
+function formatKwh(kwh: number): string {
+  if (kwh === 0) return "0";
+  if (kwh < 0.01) return kwh.toFixed(4);
+  if (kwh < 1) return kwh.toFixed(2);
+  if (kwh < 100) return kwh.toFixed(1);
+  return Math.round(kwh).toString();
+}
+
+// Terminal-visible column width. Accounts for:
+// - ANSI escape sequences (0 cols)
+// - Emoji like ⚡ (2 cols)
+// - Ambiguous-width chars that this terminal renders as 2 cols
+// - All other visible chars (1 col)
+const EMOJI_RE = /\p{Emoji_Presentation}/u;
+const AMBIGUOUS_WIDE = new Set(["◆", "■", "▲", "◉"]);
+
+function termVisWidth(str: string): number {
+  let width = 0;
+  let i = 0;
+  while (i < str.length) {
+    const code = str.charCodeAt(i);
+    // ANSI escape
+    if (code === 0x1b && i + 1 < str.length) {
+      const next = str.charCodeAt(i + 1);
+      if (next === 0x5b) { // CSI: \x1b[
+        i += 2;
+        while (i < str.length && str.charCodeAt(i) >= 0x20 && str.charCodeAt(i) <= 0x3f) i++;
+        while (i < str.length && str.charCodeAt(i) >= 0x30 && str.charCodeAt(i) <= 0x3f) i++;
+        if (i < str.length) i++;
+        continue;
+      }
+    }
+    const char = str[i];
+    if (EMOJI_RE.test(char)) {
+      width += 2;
+      i++;
+    } else if (AMBIGUOUS_WIDE.has(char)) {
+      width += 2;
+      i++;
+    } else {
+      width += 1;
+      i++;
+    }
+  }
+  return width;
+}
+
+// Custom Component that renders our status line directly, bypassing pi-tui's
+// Text auto-padding (which caused wrap/spacing bugs from visibleWidth mismatches
+// on emoji and ambiguous-width characters).
+// Defers padding to render(width) so it adapts to terminal resizes.
+class StatusLineWidget {
+  private left: string;
+  private right: string | undefined;
+
+  constructor(left: string, right?: string) {
+    this.left = left;
+    this.right = right;
+  }
+
+  render(width: number): string[] {
+    if (this.right) {
+      const leftVis = termVisWidth(this.left);
+      const rightVis = termVisWidth(this.right);
+      const pad = Math.max(1, width - leftVis - rightVis);
+      return [this.left + " ".repeat(pad) + this.right];
+    }
+    return [this.left];
+  }
+}
+
 function updateEnergyStatus(ctx: any): void {
-  const text = buildEnergyStatusText();
-  ctx.ui.setStatus("neuralwatt", text ? ctx.ui.theme.fg("dim", text) : undefined);
+  // Only show the status line when there is neuralwatt activity in this session.
+  // This avoids showing quota data in sessions that use a different provider.
+  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0;
+
+  const energyText = hasNeuralwattSession ? buildEnergyStatusText() : undefined;
+  const quotaText = hasNeuralwattSession ? buildQuotaStatusText() : undefined;
+
+  if (energyText || quotaText) {
+    const left = ctx.ui.theme.fg("dim", energyText ?? "");
+    const right = energyText && quotaText ? ctx.ui.theme.fg("dim", quotaText) : undefined;
+    const leftOnly = !energyText && quotaText ? ctx.ui.theme.fg("dim", quotaText) : undefined;
+    if (leftOnly) {
+      // Only quota, no energy — left-align it
+      ctx.ui.setWidget(
+        "neuralwatt",
+        (_ui: any, _theme: any) => new StatusLineWidget(leftOnly),
+        { placement: "belowEditor" },
+      );
+    } else {
+      ctx.ui.setWidget(
+        "neuralwatt",
+        (_ui: any, _theme: any) => new StatusLineWidget(left, right),
+        { placement: "belowEditor" },
+      );
+    }
+  } else {
+    ctx.ui.setWidget("neuralwatt", undefined);
+  }
 }
 
 // ─── Energy Formatting ────────────────────────────────────────────────────────
@@ -535,9 +731,20 @@ export default function (pi: ExtensionAPI) {
     revalidateAbort = new AbortController();
     const signal = revalidateAbort.signal;
     resetSessionState();
+    cachedQuota = null;
     await resolveApiKey(ctx.modelRegistry);
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
+
+    // Fetch quota only if there was prior neuralwatt usage in this session
+    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) {
+      fetchQuota(cachedApiKey || "", signal).then((quota) => {
+        if (quota && !signal.aborted) {
+          cachedQuota = quota;
+          updateEnergyStatus(ctx);
+        }
+      });
+    }
 
     revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
       if (freshBase && !signal.aborted) {
@@ -554,12 +761,11 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", () => {
     revalidateAbort?.abort();
+    cachedQuota = null;
   });
 
   pi.on("turn_end", async (_event, ctx) => {
     // Ensure the energy tee reader has finished before committing.
-    // For long or stalled turns, the final SSE energy comment may arrive
-    // after stream.end() but before the reader resolves.
     if (teeReader) {
       try {
         await teeReader;
@@ -583,10 +789,30 @@ export default function (pi: ExtensionAPI) {
       pendingDetail = {};
     }
     updateEnergyStatus(ctx);
+
+    // Fetch quota after neuralwatt usage to reflect updated balance
+    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) {
+      fetchQuota(cachedApiKey || "").then((quota) => {
+        if (quota) {
+          cachedQuota = quota;
+          updateEnergyStatus(ctx);
+        }
+      });
+    }
   });
 
   pi.on("session_tree", async (_event, ctx) => {
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
+
+    // Fetch quota if there was neuralwatt usage in the replayed tree
+    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) {
+      fetchQuota(cachedApiKey || "").then((quota) => {
+        if (quota) {
+          cachedQuota = quota;
+          updateEnergyStatus(ctx);
+        }
+      });
+    }
   });
 }
