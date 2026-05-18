@@ -10,7 +10,8 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 - **Tool use** - Function calling support
 - **Streaming** - Real-time token streaming
 - **Fast variants** - Optimized "Fast" versions of popular models for quicker responses
-- **Energy reporting** - Displays energy consumption (⚡J/mWh/Wh/kWh) and actual billed cost ($) in the pi footer, tracked per-session
+- **Energy reporting** - Displays energy consumption (⚡J/mWh/Wh/kWh) and actual billed cost ($) in a dedicated status widget below the editor, tracked per-session
+- **Quota display** - Shows subscription plan, kWh allocation, and credits remaining from your Neuralwatt account, right-aligned in the status widget
 
 ## Available Models
 
@@ -145,19 +146,25 @@ Values: `none`, `low`, `medium`, `high`
 
 ## Energy Reporting
 
-Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in the pi footer:
+Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in a dedicated status widget between the editor and the pi footer:
 
 ```
-↑11k ↓1.5k R16k $0.006  4.6%/262k (auto)                             (neuralwatt) moonshotai/Kimi-K2.6
-⚡1.4mWh $0.006915 ◆ 5 points / 1 snapshots
+⚡1.4mWh $0.006915                               pro ● 31.7/33.0 kWh ∙ $64.55
+~/VCS/... (main)                                                            
+↑11k ↓1.5k R16k $0.006  4.6%/262k (auto)  moonshotai/Kimi-K2.6
 ```
 
-The energy indicator (`⚡... $...`) appears on the bottom status line alongside other extension statuses like `◆ snapshots`. It does not replace the standard pi footer.
+The status widget only appears once your session has Neuralwatt energy consumption, so it stays hidden when using other providers.
 
 | Segment | Meaning |
 |---------|----------|
 | `⚡0.8mWh` | Cumulative session energy consumption (auto-scaled: J → mWh → Wh → kWh) |
 | `$0.003952` | Cumulative session actual billed cost from Neuralwatt |
+| `pro` | Your Neuralwatt subscription plan |
+| `●` | Subscription status indicator (● = active, ⊘ = past due/paused) |
+| `31.7/33.0 kWh` | kWh remaining / kWh included in your plan |
+| `∙ $64.55` | Credits remaining on your account |
+| `🔑 .../.../mo` | Key allowance usage (if set on your API key) |
 
 The energy and cost data comes from Neuralwatt's SSE stream comments (`: energy` and `: cost`), which the standard OpenAI SDK discards. This extension uses a custom stream handler that parses raw SSE to capture them.
 
