@@ -254,11 +254,18 @@ function cacheModels(models: NeuralwattModel[]): void {
 }
 
 function mergeWithEmbedded(liveModels: NeuralwattModel[], embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
-  const embeddedIds = new Set(embeddedModels.map(m => m.id));
-  const result = [...embeddedModels];
-  for (const model of liveModels) {
-    if (!embeddedIds.has(model.id)) {
-      result.push(model);
+  const embeddedMap = new Map(embeddedModels.map(m => [m.id, m]));
+  const result: NeuralwattModel[] = [];
+  for (const liveModel of liveModels) {
+    const embedded = embeddedMap.get(liveModel.id);
+    if (embedded) {
+      result.push({
+        ...liveModel,
+        ...embedded,
+        contextWindow: liveModel.contextWindow || embedded.contextWindow,
+      });
+    } else {
+      result.push(liveModel);
     }
   }
   return result;
