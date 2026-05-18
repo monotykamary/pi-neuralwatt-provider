@@ -149,9 +149,9 @@ Values: `none`, `low`, `medium`, `high`
 Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in a dedicated status widget between the editor and the pi footer:
 
 ```
-⚡1.4mWh $0.006915                               pro ● 31.7/33.0 kWh ∙ $64.55
-~/VCS/... (main)                                                            
-↑11k ↓1.5k R16k $0.006  4.6%/262k (auto)  moonshotai/Kimi-K2.6
+⚡208.89 mWh $1.04                                                                  pro ● 31.7/33.0 kWh ∙ $64.55
+~/VCS/working-remote/open-source/pi-neuralwatt-provider (main)
+↑1.5M ↓146k R28M $2.172 38.2%/203k (auto)                                (neuralwatt) zai-org/GLM-5.1-FP8 • high
 ```
 
 The status widget only appears once your session has Neuralwatt energy consumption, so it stays hidden when using other providers.
