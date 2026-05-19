@@ -14,6 +14,7 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 - **Fast variants** - Optimized "Fast" versions of popular models for quicker responses
 - **Energy reporting** - Displays energy consumption (⚡J/mWh/Wh/kWh) and actual billed cost ($) in a dedicated status widget below the editor, tracked per-session
 - **Quota display** - Shows subscription plan, kWh allocation, and credits remaining from your Neuralwatt account, right-aligned in the status widget
+- **Configurable display** - Energy and quota can each be shown in the below-editor widget, the built-in status bar, or turned off entirely via a config file
 
 ## Available Models
 
@@ -145,6 +146,39 @@ For reasoning models, control thinking depth:
 ```
 
 Values: `none`, `low`, `medium`, `high`
+
+## Display Configuration
+
+Energy and quota are independently configurable. Create `~/.pi/agent/extensions/neuralwatt.json`:
+
+```json
+{
+  "energy": "widget",
+  "quota": "widget"
+}
+```
+
+The file is auto-populated with defaults on first run.
+
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `energy` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Energy/cost display mode |
+| `quota` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Quota display mode |
+
+**Display modes:**
+
+- **`"widget"`** — Shown in the dedicated below-editor status line. Energy on the left, quota on the right, padded to terminal width.
+- **`"statusbar"`** — Shown in the built-in pi status bar. When both are set to `"statusbar"`, they're combined with a ` | ` separator: `⚡X J $Y | plan ● kWh ∙ $bal`.
+- **`"off"`** — Hidden entirely. For `"quota": "off"`, the `/v1/quota` API fetch is also skipped (saving a network round-trip). Energy data is still parsed from the SSE stream and persisted to the session even when `"off"`.
+
+**Example — custom quota footer:** If you use your own unified quota footer extension, disable the built-in quota display to avoid duplication:
+
+```json
+{
+  "energy": "widget",
+  "quota": "off"
+}
+```
 
 ## Energy Reporting
 

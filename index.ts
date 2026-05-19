@@ -29,6 +29,17 @@
  * Then use /model to select from available models like Kimi K2.5, Kimi K2.6, GLM 5, GLM 5.1,
  * Qwen3.5, GPT-OSS 20B, Devstral Small 2, and MiniMax M2.5.
  *
+ * Display Configuration:
+ *   Create ~/.pi/agent/extensions/neuralwatt.json to configure the footer display:
+ *   {
+ *     "energy": "widget",   // "widget" | "statusbar" | "off"
+ *     "quota": "widget"      // "widget" | "statusbar" | "off"
+ *   }
+ *
+ *   - "widget" (default): rendered in the below-editor status line
+ *   - "statusbar": rendered in the built-in pi status bar
+ *   - "off": hidden entirely (for quota, also skips the API fetch)
+ *
  * Neuralwatt Features:
  *   - OpenAI-compatible API (https://api.neuralwatt.com/v1)
  *   - Reasoning/thinking models
@@ -52,6 +63,47 @@ import { transformContextForImageLimit } from "./transform";
 import fs from "fs";
 import os from "os";
 import path from "path";
+
+// ─── Display Configuration ────────────────────────────────────────────────────
+
+type DisplayMode = "widget" | "statusbar" | "off";
+
+interface NeuralwattConfig {
+  energy: DisplayMode;
+  quota: DisplayMode;
+}
+
+const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "extensions", "neuralwatt.json");
+
+const VALID_DISPLAY_MODES = new Set<string>(["widget", "statusbar", "off"]);
+
+function parseDisplayMode(value: unknown, fallback: DisplayMode): DisplayMode {
+  if (typeof value === "string" && VALID_DISPLAY_MODES.has(value)) return value as DisplayMode;
+  return fallback;
+}
+
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget" };
+
+function loadConfig(): NeuralwattConfig {
+  try {
+    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+    return {
+      energy: parseDisplayMode(raw.energy, "widget"),
+      quota: parseDisplayMode(raw.quota, "widget"),
+    };
+  } catch {
+    // Config file missing or invalid — populate with defaults so the user can discover it
+    try {
+      fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
+    } catch {
+      // Write failure is non-fatal — defaults still work in memory
+    }
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
+let config = loadConfig();
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -315,6 +367,8 @@ interface EnergyEvent {
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
+const STATUS_KEY_ENERGY = "neuralwatt-energy";
+const STATUS_KEY_QUOTA = "neuralwatt-quota";
 
 let sessionEnergyJoules = 0;
 let sessionCostUsd = 0;
@@ -532,18 +586,46 @@ class StatusLineWidget {
 
 function updateEnergyStatus(ctx: any): void {
   // Only show the status line when there is neuralwatt activity in this session.
-  // This avoids showing quota data in sessions that use a different provider.
+  // This avoids showing quota/energy data in sessions that use a different provider.
   const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0;
 
   const energyText = hasNeuralwattSession ? buildEnergyStatusText() : undefined;
   const quotaText = hasNeuralwattSession ? buildQuotaStatusText() : undefined;
 
-  if (energyText || quotaText) {
+  // ─── Status bar ─────────────────────────────────────────────────────────
+  // When both energy and quota are in statusbar mode, combine them into one
+  // entry with a " | " separator. Otherwise use separate keys.
+  const energyStatusbar = config.energy === "statusbar" && energyText;
+  const quotaStatusbar = config.quota === "statusbar" && quotaText;
+
+  if (energyStatusbar && quotaStatusbar) {
+    const combined = ctx.ui.theme.fg("dim", energyText! + " | " + quotaText!);
+    ctx.ui.setStatus(STATUS_KEY_ENERGY, combined);
+    ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
+  } else {
+    if (energyStatusbar) {
+      ctx.ui.setStatus(STATUS_KEY_ENERGY, ctx.ui.theme.fg("dim", energyText!));
+    } else {
+      ctx.ui.setStatus(STATUS_KEY_ENERGY, undefined);
+    }
+    if (quotaStatusbar) {
+      ctx.ui.setStatus(STATUS_KEY_QUOTA, ctx.ui.theme.fg("dim", quotaText!));
+    } else {
+      ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
+    }
+  }
+
+  // ─── Widget assembly ─────────────────────────────────────────────────────
+  // The below-editor widget uses the original left-right layout with
+  // energy on the left and quota on the right, padded to terminal width.
+  const showEnergyWidget = config.energy === "widget" && energyText;
+  const showQuotaWidget = config.quota === "widget" && quotaText;
+
+  if (showEnergyWidget || showQuotaWidget) {
     const left = ctx.ui.theme.fg("dim", energyText ?? "");
-    const right = energyText && quotaText ? ctx.ui.theme.fg("dim", quotaText) : undefined;
-    const leftOnly = !energyText && quotaText ? ctx.ui.theme.fg("dim", quotaText) : undefined;
+    const right = showEnergyWidget && showQuotaWidget ? ctx.ui.theme.fg("dim", quotaText!) : undefined;
+    const leftOnly = !showEnergyWidget && showQuotaWidget ? ctx.ui.theme.fg("dim", quotaText!) : undefined;
     if (leftOnly) {
-      // Only quota, no energy — left-align it
       ctx.ui.setWidget(
         "neuralwatt",
         (_ui: any, _theme: any) => new StatusLineWidget(leftOnly),
@@ -736,14 +818,15 @@ export default function (pi: ExtensionAPI) {
     revalidateAbort?.abort();
     revalidateAbort = new AbortController();
     const signal = revalidateAbort.signal;
+    config = loadConfig();
     resetSessionState();
     cachedQuota = null;
     await resolveApiKey(ctx.modelRegistry);
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
 
-    // Fetch quota only if there was prior neuralwatt usage in this session
-    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) {
+    // Fetch quota only if there was prior neuralwatt usage in this session and quota is visible
+    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
       fetchQuota(cachedApiKey || "", signal).then((quota) => {
         if (quota && !signal.aborted) {
           cachedQuota = quota;
@@ -765,9 +848,13 @@ export default function (pi: ExtensionAPI) {
     });
   });
 
-  pi.on("session_shutdown", () => {
+  pi.on("session_shutdown", async (_event, ctx) => {
     revalidateAbort?.abort();
     cachedQuota = null;
+    // Clear any status bar entries from energy/quota display modes.
+    // (widget cleanup is handled by the extension runtime teardown)
+    ctx.ui.setStatus(STATUS_KEY_ENERGY, undefined);
+    ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
@@ -797,7 +884,7 @@ export default function (pi: ExtensionAPI) {
     updateEnergyStatus(ctx);
 
     // Fetch quota after neuralwatt usage to reflect updated balance
-    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) {
+    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
       fetchQuota(cachedApiKey || "").then((quota) => {
         if (quota) {
           cachedQuota = quota;
@@ -812,7 +899,7 @@ export default function (pi: ExtensionAPI) {
     updateEnergyStatus(ctx);
 
     // Fetch quota if there was neuralwatt usage in the replayed tree
-    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) {
+    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
       fetchQuota(cachedApiKey || "").then((quota) => {
         if (quota) {
           cachedQuota = quota;
