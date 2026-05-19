@@ -383,7 +383,7 @@ interface QuotaResponse {
     kwh_used: number | null;
     kwh_remaining: number | null;
     in_overage: boolean | null;
-  };
+  } | null;
   key: {
     name: string | null;
     allowance: {
@@ -416,25 +416,30 @@ function buildQuotaStatusText(): string | undefined {
   const q = cachedQuota;
   const parts: string[] = [];
 
-  // Plan name
-  parts.push(q.subscription.plan);
+  if (q.subscription) {
+    // Plan name
+    parts.push(q.subscription.plan);
 
-  // Status indicator
-  if (q.subscription.status === "active") {
-    parts.push("●");
-  } else if (q.subscription.status === "past_due" || q.subscription.status === "paused") {
-    parts.push("⊘");
-  } else {
-    parts.push(`●${q.subscription.status}`);
-  }
-
-  // kWh allocation
-  if (q.subscription.kwh_included != null && q.subscription.kwh_remaining != null) {
-    const kwhUsed = q.subscription.kwh_used ?? 0;
-    parts.push(`${formatKwh(q.subscription.kwh_remaining)}/${formatKwh(q.subscription.kwh_included)} kWh`);
-    if (q.subscription.in_overage) {
-      parts.push("⚠");
+    // Status indicator
+    if (q.subscription.status === "active") {
+      parts.push("●");
+    } else if (q.subscription.status === "past_due" || q.subscription.status === "paused") {
+      parts.push("⊘");
+    } else {
+      parts.push(`●${q.subscription.status}`);
     }
+
+    // kWh allocation
+    if (q.subscription.kwh_included != null && q.subscription.kwh_remaining != null) {
+      const kwhUsed = q.subscription.kwh_used ?? 0;
+      parts.push(`${formatKwh(q.subscription.kwh_remaining)}/${formatKwh(q.subscription.kwh_included)} kWh`);
+      if (q.subscription.in_overage) {
+        parts.push("⚠");
+      }
+    }
+  } else {
+    // Pay-as-you-go: no subscription
+    parts.push("payg");
   }
 
   // Credits remaining
