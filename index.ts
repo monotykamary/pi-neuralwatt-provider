@@ -307,9 +307,11 @@ function cacheModels(models: NeuralwattModel[]): void {
 
 function mergeWithEmbedded(liveModels: NeuralwattModel[], embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
   const embeddedMap = new Map(embeddedModels.map(m => [m.id, m]));
+  const seen = new Set<string>();
   const result: NeuralwattModel[] = [];
   for (const liveModel of liveModels) {
     const embedded = embeddedMap.get(liveModel.id);
+    seen.add(liveModel.id);
     if (embedded) {
       result.push({
         ...liveModel,
@@ -320,13 +322,27 @@ function mergeWithEmbedded(liveModels: NeuralwattModel[], embeddedModels: Neural
       result.push(liveModel);
     }
   }
+  // Append any embedded models that the live API didn't return
+  for (const em of embeddedModels) {
+    if (!seen.has(em.id)) {
+      result.push(em);
+    }
+  }
   return result;
 }
 
 function loadStaleModels(embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
   const cached = loadCachedModels();
-  if (cached && cached.length > 0) return cached;
-  return embeddedModels;
+  if (!cached || cached.length === 0) return embeddedModels;
+
+  // Merge embedded models that are missing from cache (newly added models)
+  const cachedMap = new Map(cached.map(m => [m.id, m]));
+  for (const em of embeddedModels) {
+    if (!cachedMap.has(em.id)) {
+      cached.push(em);
+    }
+  }
+  return cached;
 }
 
 async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[], signal?: AbortSignal): Promise<NeuralwattModel[] | null> {
