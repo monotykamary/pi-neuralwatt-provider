@@ -864,6 +864,17 @@ export default function (pi: ExtensionAPI) {
     });
   });
 
+  pi.on("agent_end", async (_event, ctx) => {
+    // Fetch quota once after the agent loop finishes to reflect updated balance
+    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
+      const quota = await fetchQuota(cachedApiKey || "");
+      if (quota) {
+        cachedQuota = quota;
+        updateEnergyStatus(ctx);
+      }
+    }
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     revalidateAbort?.abort();
     cachedQuota = null;
@@ -898,16 +909,6 @@ export default function (pi: ExtensionAPI) {
       pendingDetail = {};
     }
     updateEnergyStatus(ctx);
-
-    // Fetch quota after neuralwatt usage to reflect updated balance
-    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      fetchQuota(cachedApiKey || "").then((quota) => {
-        if (quota) {
-          cachedQuota = quota;
-          updateEnergyStatus(ctx);
-        }
-      });
-    }
   });
 
   pi.on("session_tree", async (_event, ctx) => {
