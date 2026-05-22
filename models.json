@@ -254,8 +254,8 @@
       "image"
     ],
     "cost": {
-      "input": 0.05,
-      "output": 0.1,
+      "input": 0.29,
+      "output": 1.15,
       "cacheRead": 0,
       "cacheWrite": 0
     },
@@ -277,8 +277,8 @@
       "image"
     ],
     "cost": {
-      "input": 0.05,
-      "output": 0.1,
+      "input": 0.29,
+      "output": 1.15,
       "cacheRead": 0,
       "cacheWrite": 0
     },
