@@ -837,30 +837,28 @@ export default function (pi: ExtensionAPI) {
     config = loadConfig();
     resetSessionState();
     cachedQuota = null;
-    await resolveApiKey(ctx.modelRegistry);
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
-
-    // Fetch quota only if there was prior neuralwatt usage in this session and quota is visible
-    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      fetchQuota(cachedApiKey || "", signal).then((quota) => {
-        if (quota && !signal.aborted) {
-          cachedQuota = quota;
-          updateEnergyStatus(ctx);
-        }
-      });
-    }
-
-    revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
-      if (freshBase && !signal.aborted) {
-        pi.registerProvider("neuralwatt", {
-          baseUrl: BASE_URL,
-          apiKey: "NEURALWATT_API_KEY",
-          api: "neuralwatt",
-          models: buildModels(freshBase, customModels, patches),
-          streamSimple: streamNeuralwatt,
+    resolveApiKey(ctx.modelRegistry).then(() => {
+      if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
+        fetchQuota(cachedApiKey || "", signal).then((quota) => {
+          if (quota && !signal.aborted) {
+            cachedQuota = quota;
+            updateEnergyStatus(ctx);
+          }
         });
       }
+      revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
+        if (freshBase && !signal.aborted) {
+          pi.registerProvider("neuralwatt", {
+            baseUrl: BASE_URL,
+            apiKey: "NEURALWATT_API_KEY",
+            api: "neuralwatt",
+            models: buildModels(freshBase, customModels, patches),
+            streamSimple: streamNeuralwatt,
+          });
+        }
+      });
     });
   });
 
