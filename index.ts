@@ -417,11 +417,50 @@ function replayEnergyEvents(ctx: any): void {
   }
 }
 
-function buildEnergyStatusText(): string | undefined {
+// Progressive-disclosure energy text. Returns the highest-fidelity string that
+// fits within maxCols visible columns, or undefined if nothing meaningful fits.
+//
+// Levels (each progressively more compressed):
+//   ⚡0.77 mWh $0.003829   full: value (spaced unit) + cost
+//   ⚡0.77mWh $0.003829    compressed: value (merged unit) + cost
+//   ⚡0.77mWh              compressed value only (cost dropped)
+function buildEnergyText(maxCols: number): string | undefined {
   if (sessionEnergyJoules <= 0 && sessionCostUsd <= 0) return undefined;
+
   const energyStr = formatEnergy(sessionEnergyJoules);
   const costStr = formatCost(sessionCostUsd);
-  return `⚡${energyStr} ${costStr}`;
+
+  // progressive levels
+  const candidates = [
+    `⚡${energyStr} ${costStr}`,   // full
+    `⚡${formatEnergyCompact(sessionEnergyJoules)} ${costStr}`, // merged unit + cost
+    `⚡${formatEnergyCompact(sessionEnergyJoules)}`,  // merged unit only
+  ];
+
+  for (const text of candidates) {
+    if (termVisWidth(text) <= maxCols) return text;
+  }
+
+  // Nothing fits — truncate the most compressed form
+  return truncateAnsi(candidates[candidates.length - 1], maxCols);
+}
+
+// Compact energy format: merges value and unit with no space ("0.77mWh" vs "0.77 mWh").
+function formatEnergyCompact(joules: number): string {
+  if (joules === 0) return "0J";
+  if (joules < 3.6) {
+    return `${joules.toFixed(2)}J`;
+  }
+  const mwh = joules / 3600;
+  if (mwh < 1000) {
+    return `${mwh.toFixed(2)}mWh`;
+  }
+  const wh = mwh / 1000;
+  if (wh < 1000) {
+    return `${wh.toFixed(2)}Wh`;
+  }
+  const kwh = wh / 1000;
+  return `${kwh.toFixed(2)}kWh`;
 }
 
 // ─── Quota Fetching ──────────────────────────────────────────────────────────
@@ -481,51 +520,127 @@ async function fetchQuota(apiKey: string, signal?: AbortSignal): Promise<QuotaRe
   }
 }
 
-function buildQuotaStatusText(): string | undefined {
+// Progressive-disclosure quota text. Returns the highest-fidelity string
+// that fits within maxCols visible columns, or undefined if nothing fits.
+//
+// Each level drops less-important detail and compresses formatting:
+//
+//   pro ● 28.0/33.0 kWh ∙ $74.62 ∙ ⚷ $0.12/$1.00/d   full
+//   pro ● 28.0/33.0 kWh ∙ $74.62                       drop allowance
+//   pro ● 28.0/33.0kWh ∙ $74.62                       merge kWh unit
+//   pro ● 28.0kWh ∙ $74.62                            drop "/total"
+//   pro ● ∙ $74.62                                     drop kWh
+//   pro ∙ $74.62                                       drop status dot
+//   pro                                                plan name only
+function buildQuotaText(maxCols: number): string | undefined {
   if (!cachedQuota) return undefined;
   const q = cachedQuota;
-  const parts: string[] = [];
 
   if (q.subscription) {
-    // Plan name
-    parts.push(q.subscription.plan);
+    const plan = q.subscription.plan;
+    const active = q.subscription.status === "active";
+    const pastDue = q.subscription.status === "past_due" || q.subscription.status === "paused";
+    const kwhIncl = q.subscription.kwh_included;
+    const kwhRem = q.subscription.kwh_remaining;
+    const hasKwh = kwhIncl != null && kwhRem != null;
+    const credits = formatCost(q.balance.credits_remaining_usd);
+    const overage = q.subscription.in_overage === true;
+    const allowance = buildAllowancePart(q);
 
-    // Status indicator
-    if (q.subscription.status === "active") {
-      parts.push("●");
-    } else if (q.subscription.status === "past_due" || q.subscription.status === "paused") {
-      parts.push("⊘");
-    } else {
-      parts.push(`●${q.subscription.status}`);
+    // Build from most to least detailed
+    const candidates: string[] = [];
+
+    // Full
+    candidates.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits, allowance));
+    // Drop allowance
+    if (allowance) candidates.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits));
+    // Merge kWh unit (no space before unit)
+    if (hasKwh) candidates.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, kwhIncl, overage, false, true, credits));
+    // Drop "/total" kWh
+    if (hasKwh) candidates.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, null, overage, false, true, credits));
+    // Drop kWh entirely
+    candidates.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, true, credits));
+    // Drop status dot
+    candidates.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, false, credits));
+    // Plan name only
+    candidates.push(plan);
+
+    for (const text of candidates) {
+      if (termVisWidth(text) <= maxCols) return text;
     }
 
-    // kWh allocation
-    if (q.subscription.kwh_included != null && q.subscription.kwh_remaining != null) {
-      const kwhUsed = q.subscription.kwh_used ?? 0;
-      parts.push(`${formatKwh(q.subscription.kwh_remaining)}/${formatKwh(q.subscription.kwh_included)} kWh`);
-      if (q.subscription.in_overage) {
-        parts.push("⚠");
-      }
-    }
+    // Nothing fits — truncate plan name
+    return truncateAnsi(plan, maxCols);
   } else {
     // Pay-as-you-go: no subscription
-    parts.push("payg");
+    const credits = formatCost(q.balance.credits_remaining_usd);
+    const allowance = buildAllowancePart(q);
+
+    const candidates: string[] = [];
+    candidates.push(["payg", `∙ ${credits}`, allowance].filter(Boolean).join(" "));
+    candidates.push(["payg", `∙ ${credits}`].join(" "));
+    candidates.push("payg");
+
+    for (const text of candidates) {
+      if (termVisWidth(text) <= maxCols) return text;
+    }
+    return truncateAnsi("payg", maxCols);
   }
+}
 
-  // Credits remaining
-  parts.push(`∙ ${formatCost(q.balance.credits_remaining_usd)}`);
+function buildAllowancePart(q: QuotaResponse): string | undefined {
+  if (!q.key.allowance) return undefined;
+  const a = q.key.allowance;
+  const spent = a.limit_usd - a.remaining_usd;
+  const periodLabel = { daily: "d", weekly: "wk", monthly: "mo" }[a.period] ?? a.period;
+  let part = `∙ ⚷ ${formatCost(spent)}/${formatCost(a.limit_usd)}/${periodLabel}`;
+  if (a.blocked) part += " ⊘";
+  return part;
+}
 
-  // Key allowance (if set)
-  if (q.key.allowance) {
-    const a = q.key.allowance;
-    const spent = a.limit_usd - a.remaining_usd;
-    const periodLabel = { daily: "d", weekly: "wk", monthly: "mo" }[a.period] ?? a.period;
-    parts.push(`∙ ⚷ ${formatCost(spent)}/${formatCost(a.limit_usd)}/${periodLabel}`);
-    if (a.blocked) {
+// Assembles subscription quota parts into a display string.
+// showDot: include the ● status indicator
+// spacedKwhUnit: "28.0/33.0 kWh" vs "28.0/33.0kWh"
+// kwhTotal: if provided, shows "remaining/total"; if null, shows "remaining" only
+function buildQuotaSubParts(
+  plan: string,
+  active: boolean,
+  pastDue: boolean,
+  showKwh: boolean,
+  kwhRem: number | null,
+  kwhTotal: number | null,
+  overage: boolean,
+  spacedKwhUnit: boolean,
+  showDot: boolean,
+  credits: string,
+  allowance?: string,
+): string {
+  const parts: string[] = [];
+  parts.push(plan);
+  if (showDot) {
+    if (active) {
+      parts.push("●");
+    } else if (pastDue) {
       parts.push("⊘");
     }
   }
-
+  if (showKwh && kwhRem != null) {
+    if (kwhTotal != null) {
+      const unit = spacedKwhUnit ? " kWh" : "kWh";
+      parts.push(`${formatKwh(kwhRem)}/${formatKwh(kwhTotal)}${unit}`);
+    } else {
+      parts.push(`${formatKwh(kwhRem)}kWh`);
+    }
+    if (overage) parts.push("⚠");
+    parts.push(`∙ ${credits}`);
+  } else if (!showDot || pastDue) {
+    // No kWh and either no status dot or error dot — need ∙ separator before credits
+    parts.push(`∙ ${credits}`);
+  } else {
+    // ● already acts as visual delimiter — skip ∙
+    parts.push(credits);
+  }
+  if (allowance) parts.push(allowance);
   return parts.join(" ");
 }
 
@@ -576,27 +691,116 @@ function termVisWidth(str: string): number {
   return width;
 }
 
-// Custom Component that renders our status line directly, bypassing pi-tui's
-// Text auto-padding (which caused wrap/spacing bugs from visibleWidth mismatches
-// on emoji and ambiguous-width characters).
-// Defers padding to render(width) so it adapts to terminal resizes.
-class StatusLineWidget {
-  private left: string;
-  private right: string | undefined;
+// Truncate a string (which may contain ANSI escape sequences or wide chars)
+// to fit within maxCols visible columns. Appends "…" if truncation occurs.
+function truncateAnsi(str: string, maxCols: number): string {
+  if (maxCols <= 0) return "";
+  if (termVisWidth(str) <= maxCols) return str;
 
-  constructor(left: string, right?: string) {
-    this.left = left;
-    this.right = right;
+  // Walk the string tracking visible width. When adding the next character
+  // would exceed maxCols - 1 (reserving 1 for "…"), cut and append "…".
+  let result = "";
+  let visWidth = 0;
+  let i = 0;
+  const ellipsisCols = 1; // "…" is 1 visible col
+  const target = maxCols - ellipsisCols;
+
+  while (i < str.length) {
+    const code = str.charCodeAt(i);
+
+    // ANSI escape — always preserved (0 visible width)
+    if (code === 0x1b && i + 1 < str.length && str.charCodeAt(i + 1) === 0x5b) {
+      const start = i;
+      i += 2;
+      while (i < str.length && str.charCodeAt(i) >= 0x20 && str.charCodeAt(i) <= 0x3f) i++;
+      while (i < str.length && str.charCodeAt(i) >= 0x30 && str.charCodeAt(i) <= 0x3f) i++;
+      if (i < str.length) i++;
+      result += str.slice(start, i);
+      continue;
+    }
+
+    // Determine the visible width of this character
+    const char = str[i];
+    let charWidth: number;
+    if (EMOJI_RE.test(char)) {
+      charWidth = 2;
+    } else if (AMBIGUOUS_WIDE.has(char)) {
+      charWidth = 2;
+    } else {
+      charWidth = 1;
+    }
+
+    if (visWidth + charWidth > target) break;
+    result += char;
+    visWidth += charWidth;
+    i++;
+  }
+
+  return result + "…";
+}
+
+// Custom Component that renders our status line with width-aware progressive
+// disclosure. Left (energy) is always preserved at full fidelity; right (quota)
+// compresses to fit the remaining space. If left alone exceeds width, it's
+// truncated as a last resort to prevent overflow crashes.
+//
+// Stores raw (unthemed) text. Theme is applied inside render() so that
+// progressive-disclosure recompression of the quota side uses raw text widths.
+class StatusLineWidget {
+  private leftRaw: string;
+  private rightRaw: string | undefined;
+  private theme: any;
+
+  constructor(theme: any, leftRaw: string, rightRaw?: string) {
+    this.theme = theme;
+    this.leftRaw = leftRaw;
+    this.rightRaw = rightRaw;
   }
 
   render(width: number): string[] {
-    if (this.right) {
-      const leftVis = termVisWidth(this.left);
-      const rightVis = termVisWidth(this.right);
-      const pad = Math.max(1, width - leftVis - rightVis);
-      return [this.left + " ".repeat(pad) + this.right];
+    const leftVis = termVisWidth(this.leftRaw);
+
+    // Safety net: if left alone exceeds width, truncate it
+    if (leftVis > width) {
+      return [this.theme.fg("dim", truncateAnsi(this.leftRaw, width))];
     }
-    return [this.left];
+
+    if (!this.rightRaw) {
+      // Left only: theme + pad to width
+      const themed = this.theme.fg("dim", this.leftRaw);
+      const pad = width - termVisWidth(themed);
+      return [themed + " ".repeat(Math.max(0, pad))];
+    }
+
+    const rightVis = termVisWidth(this.rightRaw);
+    const available = width - leftVis;
+
+    if (rightVis <= available - 1) {
+      // Both fit with at least 1 space between
+      const themedL = this.theme.fg("dim", this.leftRaw);
+      const themedR = this.theme.fg("dim", this.rightRaw);
+      const pad = width - termVisWidth(themedL) - termVisWidth(themedR);
+      return [themedL + " ".repeat(Math.max(1, pad)) + themedR];
+    }
+
+    // Right doesn't fit at full fidelity — progressive compression.
+    // buildQuotaText(budget) internally tries all levels and returns the
+    // highest-fidelity string that fits within budget cols.
+    const budget = available - 1;
+    if (budget > 0) {
+      const compressed = buildQuotaText(budget);
+      if (compressed) {
+        const themedL = this.theme.fg("dim", this.leftRaw);
+        const themedR = this.theme.fg("dim", compressed);
+        const pad = width - termVisWidth(themedL) - termVisWidth(themedR);
+        return [themedL + " ".repeat(Math.max(1, pad)) + themedR];
+      }
+    }
+
+    // Nothing from quota fits — left only, themed + padded
+    const themed = this.theme.fg("dim", this.leftRaw);
+    const pad = width - termVisWidth(themed);
+    return [themed + " ".repeat(Math.max(0, pad))];
   }
 }
 
@@ -605,52 +809,51 @@ function updateEnergyStatus(ctx: any): void {
   // This avoids showing quota/energy data in sessions that use a different provider.
   const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0;
 
-  const energyText = hasNeuralwattSession ? buildEnergyStatusText() : undefined;
-  const quotaText = hasNeuralwattSession ? buildQuotaStatusText() : undefined;
+  // Statusbar uses full-fidelity text (no width constraint)
+  const energyFull = hasNeuralwattSession ? buildEnergyText(Infinity) : undefined;
+  const quotaFull = hasNeuralwattSession ? buildQuotaText(Infinity) : undefined;
 
   // ─── Status bar ─────────────────────────────────────────────────────────
-  // When both energy and quota are in statusbar mode, combine them into one
-  // entry with a " | " separator. Otherwise use separate keys.
-  const energyStatusbar = config.energy === "statusbar" && energyText;
-  const quotaStatusbar = config.quota === "statusbar" && quotaText;
+  const energyStatusbar = config.energy === "statusbar" && energyFull;
+  const quotaStatusbar = config.quota === "statusbar" && quotaFull;
 
   if (energyStatusbar && quotaStatusbar) {
-    const combined = ctx.ui.theme.fg("dim", energyText! + " | " + quotaText!);
+    const combined = ctx.ui.theme.fg("dim", energyFull! + " | " + quotaFull!);
     ctx.ui.setStatus(STATUS_KEY_ENERGY, combined);
     ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
   } else {
     if (energyStatusbar) {
-      ctx.ui.setStatus(STATUS_KEY_ENERGY, ctx.ui.theme.fg("dim", energyText!));
+      ctx.ui.setStatus(STATUS_KEY_ENERGY, ctx.ui.theme.fg("dim", energyFull!));
     } else {
       ctx.ui.setStatus(STATUS_KEY_ENERGY, undefined);
     }
     if (quotaStatusbar) {
-      ctx.ui.setStatus(STATUS_KEY_QUOTA, ctx.ui.theme.fg("dim", quotaText!));
+      ctx.ui.setStatus(STATUS_KEY_QUOTA, ctx.ui.theme.fg("dim", quotaFull!));
     } else {
       ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
     }
   }
 
   // ─── Widget assembly ─────────────────────────────────────────────────────
-  // The below-editor widget uses the original left-right layout with
-  // energy on the left and quota on the right, padded to terminal width.
-  const showEnergyWidget = config.energy === "widget" && energyText;
-  const showQuotaWidget = config.quota === "widget" && quotaText;
+  // The widget stores raw (unthemed) text so it can re-compress the quota
+  // side at render time when the terminal is narrow.
+  const showEnergyWidget = config.energy === "widget" && energyFull;
+  const showQuotaWidget = config.quota === "widget" && quotaFull;
 
   if (showEnergyWidget || showQuotaWidget) {
-    const left = ctx.ui.theme.fg("dim", energyText ?? "");
-    const right = showEnergyWidget && showQuotaWidget ? ctx.ui.theme.fg("dim", quotaText!) : undefined;
-    const leftOnly = !showEnergyWidget && showQuotaWidget ? ctx.ui.theme.fg("dim", quotaText!) : undefined;
-    if (leftOnly) {
+    const leftRaw = energyFull ?? "";
+    const rightRaw = showEnergyWidget && showQuotaWidget ? quotaFull! : undefined;
+    const leftOnlyRaw = !showEnergyWidget && showQuotaWidget ? quotaFull! : undefined;
+    if (leftOnlyRaw) {
       ctx.ui.setWidget(
         "neuralwatt",
-        (_ui: any, _theme: any) => new StatusLineWidget(leftOnly),
+        (_ui: any, theme: any) => new StatusLineWidget(theme, leftOnlyRaw),
         { placement: "belowEditor" },
       );
     } else {
       ctx.ui.setWidget(
         "neuralwatt",
-        (_ui: any, _theme: any) => new StatusLineWidget(left, right),
+        (_ui: any, theme: any) => new StatusLineWidget(theme, leftRaw, rightRaw),
         { placement: "belowEditor" },
       );
     }
