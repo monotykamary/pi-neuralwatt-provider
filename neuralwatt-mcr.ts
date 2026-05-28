@@ -739,11 +739,17 @@ export default function (pi: ExtensionAPI) {
 
     // Replay energy events from the session log for the new branch.
     for (const entry of ctx.sessionManager.getBranch()) {
-      if (entry.type === "custom" && entry.customType === "neuralwatt-energy" && entry.data) {
-        state.totalEnergyJoules += entry.data.energy_joules || 0;
+      if (
+        entry.type === "custom" &&
+        entry.customType === "neuralwatt-energy" &&
+        typeof entry.data === "object" &&
+        entry.data
+      ) {
+        state.totalEnergyJoules += (entry.data as { energy_joules: number }).energy_joules || 0;
       }
     }
 
+    nwlog("session_tree", { total_energy_replayed: state.totalEnergyJoules });
     updateStatusBar(ctx);
   });
 
