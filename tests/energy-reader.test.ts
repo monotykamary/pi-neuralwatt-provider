@@ -62,7 +62,7 @@ describe("readEnergyFromTee", () => {
     const state = getPendingState();
     expect(state.pendingEnergyJoules).toBe(99.5);
     expect(state.pendingCostUsd).toBe(0.000123);
-    expect(state.pendingDetail.duration_seconds).toBe(0.5);
+    expect((state.pendingEnergyRaw as any).duration_seconds).toBe(0.5);
   });
 
   it("handles multiple energy comments (accumulates)", async () => {
@@ -130,7 +130,7 @@ describe("readEnergyFromTee", () => {
     // After awaiting, the comment has been parsed
     await promise;
     expect(getPendingState().pendingEnergyJoules).toBe(12345.6);
-    expect(getPendingState().pendingDetail.attribution_ratio).toBe(0.07);
+    expect((getPendingState().pendingEnergyRaw as any).attribution_ratio).toBe(0.07);
   });
 
   it("lost energy when not awaited (old behaviour simulation)", async () => {
@@ -226,18 +226,18 @@ describe("readEnergyFromTee", () => {
 
     expect(state.pendingEnergyJoules).toBe(209.9);
     expect(state.pendingCostUsd).toBe(0.000292);
-    expect(state.pendingDetail.energy_kwh).toBe(0.000058307);
-    expect(state.pendingDetail.avg_power_watts).toBe(4747);
-    expect(state.pendingDetail.duration_seconds).toBe(0.906);
-    expect(state.pendingDetail.attribution_method).toBe("counter_prorated_token_pool_weighted_multi_gpu_8");
-    expect(state.pendingDetail.attribution_ratio).toBe(0.0488);
-    expect(state.pendingDetail.ratio_was_capped).toBe(true);
-    expect(state.pendingDetail.uncapped_attribution_ratio).toBe(0.1478);
-    expect(state.pendingDetail.uncapped_energy_joules).toBe(661.32);
-    expect(state.pendingDetail.uncapped_energy_kwh).toBe(0.0001837);
-    expect(state.pendingDetail.cache_savings_usd).toBe(0);
-    expect(state.pendingDetail.allowance_remaining_usd).toBe(64.553536);
-    expect(state.pendingDetail.budget_remaining_usd).toBe(64.553536);
+    expect((state.pendingEnergyRaw as any).energy_kwh).toBe(0.000058307);
+    expect((state.pendingEnergyRaw as any).avg_power_watts).toBe(4747);
+    expect((state.pendingEnergyRaw as any).duration_seconds).toBe(0.906);
+    expect((state.pendingEnergyRaw as any).attribution_method).toBe("counter_prorated_token_pool_weighted_multi_gpu_8");
+    expect((state.pendingEnergyRaw as any).attribution_ratio).toBe(0.0488);
+    expect((state.pendingEnergyRaw as any).ratio_was_capped).toBe(true);
+    expect((state.pendingEnergyRaw as any).uncapped_attribution_ratio).toBe(0.1478);
+    expect((state.pendingEnergyRaw as any).uncapped_energy_joules).toBe(661.32);
+    expect((state.pendingEnergyRaw as any).uncapped_energy_kwh).toBe(0.0001837);
+    expect((state.pendingCostRaw as any).cache_savings_usd).toBe(0);
+    expect((state.pendingCostRaw as any).allowance_remaining_usd).toBe(64.553536);
+    expect((state.pendingCostRaw as any).budget_remaining_usd).toBe(64.553536);
   });
 
   it("final non-newline chunk is flushed via decoder decode", async () => {
@@ -285,10 +285,10 @@ describe("readEnergyFromTee MCR stream comments", () => {
     await readEnergyFromTee(body);
 
     const state = getPendingState();
-    expect(state.pendingMcrSession).not.toBeNull();
-    expect(state.pendingMcrSession!.session_fp).toBe("df77ba79e128f08f7ea2c0d1");
-    expect(state.pendingMcrSession!.stored_through).toBe(1);
-    expect(state.pendingMcrSession!.safe_drop_before).toBe(13);
+    expect(state.pendingMcrSessionRaw).not.toBeNull();
+    expect((state.pendingMcrSessionRaw as any).session_fp).toBe("df77ba79e128f08f7ea2c0d1");
+    expect((state.pendingMcrSessionRaw as any).stored_through).toBe(1);
+    expect((state.pendingMcrSessionRaw as any).safe_drop_before).toBe(13);
   });
 
   it("extracts .mcr sub-object from : energy comment", async () => {
@@ -298,15 +298,15 @@ describe("readEnergyFromTee MCR stream comments", () => {
     await readEnergyFromTee(body);
 
     const state = getPendingState();
-    expect(state.pendingMcrEnergy).not.toBeNull();
-    expect(state.pendingMcrEnergy!.energy_joules).toBe(44.1);
-    expect(state.pendingMcrEnergy!.mcr).toBeDefined();
-    expect(state.pendingMcrEnergy!.mcr!.compaction_triggered).toBe(false);
-    expect(state.pendingMcrEnergy!.mcr!.session_turns).toBe(3);
-    expect(state.pendingMcrEnergy!.mcr!.context_tokens).toBe(5);
-    expect(state.pendingMcrEnergy!.mcr!.apc_hit_rate).toBe(0.85);
-    expect(state.pendingMcrEnergy!.mcr!.mcr_compacted_tokens).toBe(420);
-    expect(state.pendingMcrEnergy!.mcr!.mcr_original_tokens).toBe(1000);
+    expect(state.pendingEnergyRaw).not.toBeNull();
+    const mcr = (state.pendingEnergyRaw as any).mcr;
+    expect(mcr).toBeDefined();
+    expect(mcr.compaction_triggered).toBe(false);
+    expect(mcr.session_turns).toBe(3);
+    expect(mcr.context_tokens).toBe(5);
+    expect(mcr.apc_hit_rate).toBe(0.85);
+    expect(mcr.mcr_compacted_tokens).toBe(420);
+    expect(mcr.mcr_original_tokens).toBe(1000);
   });
 
   it("parses full realistic stream with energy, mcr-session, and cost", async () => {
@@ -323,21 +323,22 @@ describe("readEnergyFromTee MCR stream comments", () => {
     // Energy
     expect(state.pendingEnergyJoules).toBe(44.1);
     expect(state.pendingCostUsd).toBeCloseTo(6.1e-05, 10);
-    expect(state.pendingDetail.attribution_method).toBe("counter_prorated_token_pool_weighted_multi_gpu_8");
+    expect((state.pendingEnergyRaw as any).attribution_method).toBe("counter_prorated_token_pool_weighted_multi_gpu_8");
     // MCR session from : mcr-session
-    expect(state.pendingMcrSession).not.toBeNull();
-    expect(state.pendingMcrSession!.session_fp).toBe("df77ba79e128f08f7ea2c0d1");
-    expect(state.pendingMcrSession!.stored_through).toBe(1);
-    expect(state.pendingMcrSession!.safe_drop_before).toBe(0);
+    expect(state.pendingMcrSessionRaw).not.toBeNull();
+    expect((state.pendingMcrSessionRaw as any).session_fp).toBe("df77ba79e128f08f7ea2c0d1");
+    expect((state.pendingMcrSessionRaw as any).stored_through).toBe(1);
+    expect((state.pendingMcrSessionRaw as any).safe_drop_before).toBe(0);
     // MCR energy from : energy .mcr
-    expect(state.pendingMcrEnergy).not.toBeNull();
-    expect(state.pendingMcrEnergy!.energy_joules).toBe(44.1);
-    expect(state.pendingMcrEnergy!.mcr!.compaction_triggered).toBe(false);
-    expect(state.pendingMcrEnergy!.mcr!.session_turns).toBe(1);
-    expect(state.pendingMcrEnergy!.mcr!.context_tokens).toBe(5);
-    expect(state.pendingMcrEnergy!.mcr!.apc_hit_rate).toBe(0.0);
-    expect(state.pendingMcrEnergy!.mcr!.mcr_compacted_tokens).toBe(0);
-    expect(state.pendingMcrEnergy!.mcr!.mcr_original_tokens).toBe(11);
+    expect(state.pendingEnergyRaw).not.toBeNull();
+    expect((state.pendingEnergyRaw as any).energy_joules).toBe(44.1);
+    const mcr = (state.pendingEnergyRaw as any).mcr;
+    expect(mcr.compaction_triggered).toBe(false);
+    expect(mcr.session_turns).toBe(1);
+    expect(mcr.context_tokens).toBe(5);
+    expect(mcr.apc_hit_rate).toBe(0.0);
+    expect(mcr.mcr_compacted_tokens).toBe(0);
+    expect(mcr.mcr_original_tokens).toBe(11);
     // Raw SSE payloads preserved verbatim
     expect(state.pendingEnergyRaw).not.toBeNull();
     expect((state.pendingEnergyRaw as any).carbon_g_co2eq).toBe(0.0005146);
@@ -359,7 +360,10 @@ describe("readEnergyFromTee MCR stream comments", () => {
     await readEnergyFromTee(body);
 
     const state = getPendingState();
-    expect(state.pendingMcrSession).toBeNull();
+    // First is malformed JSON (ignored), second is valid JSON but missing
+    // session_fp — stored as raw anyway since we don't filter
+    expect(state.pendingMcrSessionRaw).not.toBeNull();
+    expect((state.pendingMcrSessionRaw as any).no_session_fp).toBe(true);
   });
 
   it("ignores : energy without .mcr sub-object", async () => {
@@ -370,7 +374,9 @@ describe("readEnergyFromTee MCR stream comments", () => {
 
     const state = getPendingState();
     expect(state.pendingEnergyJoules).toBe(10);
-    expect(state.pendingMcrEnergy).toBeNull();
+    // Raw stored regardless of .mcr presence
+    expect(state.pendingEnergyRaw).not.toBeNull();
+    expect((state.pendingEnergyRaw as any).mcr).toBeUndefined();
   });
 
   it("consumePendingMCR returns and clears pending MCR data", async () => {
@@ -378,24 +384,21 @@ describe("readEnergyFromTee MCR stream comments", () => {
       str(': mcr-session {"session_fp": "abc123", "stored_through": 5, "safe_drop_before": 3}\n'),
       str(': energy {"energy_joules": 99, "mcr": {"compaction_triggered": true, "session_turns": 2, "context_tokens": 10, "apc_hit_rate": 0.5}}\n'),
     ]);
-    // readEnergyFromTee populates pendingMcrSession/pendingMcrEnergy as a
-    // side effect. After awaiting, publishMCRRidge copies them to globalThis
-    // so consumePendingMCR() can read them.
     await readEnergyFromTee(body);
     publishMCRRidge();
 
     const result = consumePendingMCR();
-    expect(result.mcrSession).not.toBeNull();
-    expect(result.mcrSession!.session_fp).toBe("abc123");
-    expect(result.mcrSession!.safe_drop_before).toBe(3);
-    expect(result.mcrEnergy).not.toBeNull();
-    expect(result.mcrEnergy!.energy_joules).toBe(99);
-    expect(result.mcrEnergy!.mcr!.apc_hit_rate).toBe(0.5);
+    expect(result.mcrSessionRaw).not.toBeNull();
+    expect((result.mcrSessionRaw as any).session_fp).toBe("abc123");
+    expect((result.mcrSessionRaw as any).safe_drop_before).toBe(3);
+    expect(result.energyRaw).not.toBeNull();
+    expect((result.energyRaw as any).energy_joules).toBe(99);
+    expect((result.energyRaw as any).mcr.apc_hit_rate).toBe(0.5);
 
     // Consumed — second call returns nulls
     const result2 = consumePendingMCR();
-    expect(result2.mcrSession).toBeNull();
-    expect(result2.mcrEnergy).toBeNull();
+    expect(result2.energyRaw).toBeNull();
+    expect(result2.mcrSessionRaw).toBeNull();
   });
 
   it("resetSessionState clears pending MCR data", async () => {
@@ -405,13 +408,13 @@ describe("readEnergyFromTee MCR stream comments", () => {
     ]);
     await readEnergyFromTee(body);
 
-    expect(getPendingState().pendingMcrSession).not.toBeNull();
-    expect(getPendingState().pendingMcrEnergy).not.toBeNull();
+    expect(getPendingState().pendingMcrSessionRaw).not.toBeNull();
+    expect(getPendingState().pendingEnergyRaw).not.toBeNull();
 
     resetSessionState();
 
-    expect(getPendingState().pendingMcrSession).toBeNull();
-    expect(getPendingState().pendingMcrEnergy).toBeNull();
+    expect(getPendingState().pendingMcrSessionRaw).toBeNull();
+    expect(getPendingState().pendingEnergyRaw).toBeNull();
   });
 
   it("raw SSE payloads are captured even with no energy/cost", async () => {

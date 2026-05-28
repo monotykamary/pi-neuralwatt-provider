@@ -379,18 +379,6 @@ async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
 interface EnergyEvent {
   energy_joules: number;
   cost_usd: number;
-  energy_kwh?: number;
-  avg_power_watts?: number;
-  duration_seconds?: number;
-  attribution_method?: string;
-  attribution_ratio?: number;
-  ratio_was_capped?: boolean;
-  uncapped_attribution_ratio?: number;
-  uncapped_energy_joules?: number;
-  uncapped_energy_kwh?: number;
-  cache_savings_usd?: number;
-  allowance_remaining_usd?: number;
-  budget_remaining_usd?: number;
   // Raw SSE comment payloads, stored verbatim for later reference.
   // Not used for replay — just persisted to the session log.
   sse_energy_raw?: Record<string, unknown>;
@@ -406,83 +394,58 @@ let sessionEnergyJoules = 0;
 let sessionCostUsd = 0;
 let pendingEnergyJoules = 0;
 let pendingCostUsd = 0;
-let pendingDetail: Partial<EnergyEvent> = {};
 let pendingEnergyRaw: Record<string, unknown> | null = null;
 let pendingMcrSessionRaw: Record<string, unknown> | null = null;
 let pendingCostRaw: Record<string, unknown> | null = null;
 let teeReader: Promise<void> | undefined;
 
-// Pending MCR data parsed from SSE stream comments (: mcr-session, : energy .mcr).
-// Consumed by neuralwatt-mcr.ts on turn_end.
-interface PendingMCRSessionData {
-  session_fp: string;
-  stored_through: number;
-  safe_drop_before: number;
-}
-
-interface PendingMCREnergyData {
-  energy_joules: number;
-  mcr?: {
-    compaction_triggered: boolean;
-    session_turns: number;
-    context_tokens: number;
-    apc_hit_rate?: number;
-    mcr_compacted_tokens?: number;
-    mcr_original_tokens?: number;
-  };
-}
-
-let pendingMcrSession: PendingMCRSessionData | null = null;
-let pendingMcrEnergy: PendingMCREnergyData | null = null;
-
-// Shared bridge for MCR data parsed from SSE stream comments.
+// Shared bridge for raw SSE comment payloads parsed from the stream tee.
 // Uses globalThis so the neuralwatt-mcr.ts extension (a separate ESM
 // module loaded by Pi) can consume the data regardless of whether Pi
 // shares the same module instance for index.ts. If two import() calls
-// resolve to different module instances, module-level variables like
-// pendingMcrSession / pendingMcrEnergy are NOT shared — but globalThis
-// always is (same JS process). Index.ts publishes to the bridge in its
-// turn_end handler after awaiting the tee reader; neuralwatt-mcr.ts
-// consumes from the bridge in its own turn_end handler.
+// resolve to different module instances, module-level variables are
+// NOT shared — but globalThis always is (same JS process). Index.ts
+// publishes to the bridge in its turn_end handler after awaiting the
+// tee reader; neuralwatt-mcr.ts consumes from the bridge in its own
+// turn_end handler.
 const NW_MCR_BRIDGE = Symbol.for("pi-neuralwatt-provider.mcr-bridge");
 
 interface NWMCRRidge {
-  mcrSession: PendingMCRSessionData | null;
-  mcrEnergy: PendingMCREnergyData | null;
+  energyRaw: Record<string, unknown> | null;
+  mcrSessionRaw: Record<string, unknown> | null;
+  costRaw: Record<string, unknown> | null;
 }
 
 function getMCRRidge(): NWMCRRidge {
   if (!(globalThis as any)[NW_MCR_BRIDGE]) {
-    (globalThis as any)[NW_MCR_BRIDGE] = { mcrSession: null, mcrEnergy: null };
+    (globalThis as any)[NW_MCR_BRIDGE] = { energyRaw: null, mcrSessionRaw: null, costRaw: null };
   }
   return (globalThis as any)[NW_MCR_BRIDGE];
 }
 
 export function publishMCRRidge(): void {
   const bridge = getMCRRidge();
-  bridge.mcrSession = pendingMcrSession;
-  bridge.mcrEnergy = pendingMcrEnergy;
-  pendingMcrSession = null;
-  pendingMcrEnergy = null;
+  bridge.energyRaw = pendingEnergyRaw;
+  bridge.mcrSessionRaw = pendingMcrSessionRaw;
+  bridge.costRaw = pendingCostRaw;
 }
 
-export function consumePendingMCR(): {
-  mcrSession: PendingMCRSessionData | null;
-  mcrEnergy: PendingMCREnergyData | null;
-} {
+export function consumePendingMCR(): NWMCRRidge {
   const bridge = getMCRRidge();
   const result = {
-    mcrSession: bridge.mcrSession,
-    mcrEnergy: bridge.mcrEnergy,
+    energyRaw: bridge.energyRaw,
+    mcrSessionRaw: bridge.mcrSessionRaw,
+    costRaw: bridge.costRaw,
   };
-  bridge.mcrSession = null;
-  bridge.mcrEnergy = null;
+  bridge.energyRaw = null;
+  bridge.mcrSessionRaw = null;
+  bridge.costRaw = null;
   return result;
 }
 
 // Exposed for testing
 export function getPendingState() {
-  return { pendingEnergyJoules, pendingCostUsd, pendingDetail, teeReader, pendingMcrSession, pendingMcrEnergy, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw };
+  return { pendingEnergyJoules, pendingCostUsd, teeReader, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw };
 }
 
 export function resetSessionState() {
@@ -490,17 +453,15 @@ export function resetSessionState() {
   sessionCostUsd = 0;
   pendingEnergyJoules = 0;
   pendingCostUsd = 0;
-  pendingDetail = {};
-  pendingMcrSession = null;
-  pendingMcrEnergy = null;
   pendingEnergyRaw = null;
   pendingMcrSessionRaw = null;
   pendingCostRaw = null;
   // Also clear the bridge so stale data doesn't leak across tests
   const bridge = (globalThis as any)[NW_MCR_BRIDGE];
   if (bridge) {
-    bridge.mcrSession = null;
-    bridge.mcrEnergy = null;
+    bridge.energyRaw = null;
+    bridge.mcrSessionRaw = null;
+    bridge.costRaw = null;
   }
 }
 
@@ -1000,46 +961,13 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
       try {
         const energy = JSON.parse(trimmed.slice(9));
         pendingEnergyJoules += energy.energy_joules || 0;
-        pendingDetail.energy_kwh = energy.energy_kwh ?? pendingDetail.energy_kwh;
-        pendingDetail.avg_power_watts = energy.avg_power_watts ?? pendingDetail.avg_power_watts;
-        pendingDetail.duration_seconds = energy.duration_seconds ?? pendingDetail.duration_seconds;
-        pendingDetail.attribution_method = energy.attribution_method ?? pendingDetail.attribution_method;
-        pendingDetail.attribution_ratio = energy.attribution_ratio ?? pendingDetail.attribution_ratio;
-        pendingDetail.ratio_was_capped = energy.ratio_was_capped ?? pendingDetail.ratio_was_capped;
-        pendingDetail.uncapped_attribution_ratio = energy.uncapped_attribution_ratio ?? pendingDetail.uncapped_attribution_ratio;
-        pendingDetail.uncapped_energy_joules = energy.uncapped_energy_joules ?? pendingDetail.uncapped_energy_joules;
-        pendingDetail.uncapped_energy_kwh = energy.uncapped_energy_kwh ?? pendingDetail.uncapped_energy_kwh;
-        // Store raw payload for session log persistence
         pendingEnergyRaw = energy;
-        // Extract .mcr sub-object for neuralwatt-mcr.ts status bar
-        if (energy.mcr && typeof energy.mcr === "object") {
-          const m = energy.mcr;
-          pendingMcrEnergy = {
-            energy_joules: energy.energy_joules || 0,
-            mcr: {
-              compaction_triggered: typeof m.compaction_triggered === "boolean" ? m.compaction_triggered : false,
-              session_turns: typeof m.session_turns === "number" ? m.session_turns : 0,
-              context_tokens: typeof m.context_tokens === "number" ? m.context_tokens : 0,
-              apc_hit_rate: typeof m.apc_hit_rate === "number" ? m.apc_hit_rate : undefined,
-              mcr_compacted_tokens: typeof m.mcr_compacted_tokens === "number" ? m.mcr_compacted_tokens : undefined,
-              mcr_original_tokens: typeof m.mcr_original_tokens === "number" ? m.mcr_original_tokens : undefined,
-            },
-          };
-        }
       } catch {
         // Malformed energy comment, ignore
       }
     } else if (trimmed.startsWith(": mcr-session ")) {
       try {
         const mcr = JSON.parse(trimmed.slice(14));
-        if (typeof mcr.session_fp === "string") {
-          pendingMcrSession = {
-            session_fp: mcr.session_fp,
-            stored_through: typeof mcr.stored_through === "number" ? mcr.stored_through : 0,
-            safe_drop_before: typeof mcr.safe_drop_before === "number" ? mcr.safe_drop_before : 0,
-          };
-        }
-        // Store raw payload for session log persistence
         pendingMcrSessionRaw = mcr;
       } catch {
         // Malformed mcr-session comment, ignore
@@ -1048,10 +976,6 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
       try {
         const cost = JSON.parse(trimmed.slice(7));
         pendingCostUsd += cost.request_cost_usd || 0;
-        pendingDetail.cache_savings_usd = cost.cache_savings_usd ?? pendingDetail.cache_savings_usd;
-        pendingDetail.allowance_remaining_usd = cost.allowance_remaining_usd ?? pendingDetail.allowance_remaining_usd;
-        pendingDetail.budget_remaining_usd = cost.budget_remaining_usd ?? pendingDetail.budget_remaining_usd;
-        // Store raw payload for session log persistence
         pendingCostRaw = cost;
       } catch {
         // Malformed cost comment, ignore
@@ -1238,7 +1162,6 @@ export default function (pi: ExtensionAPI) {
       const entry: EnergyEvent = {
         energy_joules: pendingEnergyJoules,
         cost_usd: pendingCostUsd,
-        ...pendingDetail,
       };
       if (pendingEnergyRaw) entry.sse_energy_raw = pendingEnergyRaw;
       if (pendingMcrSessionRaw) entry.sse_mcr_session_raw = pendingMcrSessionRaw;
@@ -1248,7 +1171,6 @@ export default function (pi: ExtensionAPI) {
       sessionCostUsd += pendingCostUsd;
       pendingEnergyJoules = 0;
       pendingCostUsd = 0;
-      pendingDetail = {};
       pendingEnergyRaw = null;
       pendingMcrSessionRaw = null;
       pendingCostRaw = null;

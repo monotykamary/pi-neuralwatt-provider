@@ -142,7 +142,7 @@ describe("flex model streaming with delta.reasoning", () => {
     const state = getPendingState();
     expect(state.pendingEnergyJoules).toBe(55.5);
     expect(state.pendingCostUsd).toBe(0.000077);
-    expect(state.pendingDetail.duration_seconds).toBe(1.2);
+    expect((state.pendingEnergyRaw as any).duration_seconds).toBe(1.2);
   });
 
   it("handles energy comment arriving after a long reasoning stream", async () => {
@@ -166,9 +166,9 @@ describe("flex model streaming with delta.reasoning", () => {
     const state = getPendingState();
     expect(state.pendingEnergyJoules).toBe(643.15);
     expect(state.pendingCostUsd).toBe(0.000893);
-    expect(state.pendingDetail.energy_kwh).toBe(0.000178654);
-    expect(state.pendingDetail.avg_power_watts).toBe(4491.7);
-    expect(state.pendingDetail.duration_seconds).toBe(19.932);
+    expect((state.pendingEnergyRaw as any).energy_kwh).toBe(0.000178654);
+    expect((state.pendingEnergyRaw as any).avg_power_watts).toBe(4491.7);
+    expect((state.pendingEnergyRaw as any).duration_seconds).toBe(19.932);
   });
 
   it("captures uncapped energy fields present in flex model responses", async () => {
@@ -186,11 +186,11 @@ describe("flex model streaming with delta.reasoning", () => {
 
     const state = getPendingState();
     expect(state.pendingEnergyJoules).toBe(48.91);
-    expect(state.pendingDetail.attribution_ratio).toBe(0.07);
-    expect(state.pendingDetail.ratio_was_capped).toBe(true);
-    expect(state.pendingDetail.uncapped_attribution_ratio).toBe(1.0);
-    expect(state.pendingDetail.uncapped_energy_joules).toBe(698.72);
-    expect(state.pendingDetail.uncapped_energy_kwh).toBe(0.000194089);
+    expect((state.pendingEnergyRaw as any).attribution_ratio).toBe(0.07);
+    expect((state.pendingEnergyRaw as any).ratio_was_capped).toBe(true);
+    expect((state.pendingEnergyRaw as any).uncapped_attribution_ratio).toBe(1.0);
+    expect((state.pendingEnergyRaw as any).uncapped_energy_joules).toBe(698.72);
+    expect((state.pendingEnergyRaw as any).uncapped_energy_kwh).toBe(0.000194089);
   });
 });
 

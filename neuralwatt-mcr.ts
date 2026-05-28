@@ -648,24 +648,38 @@ export default function (pi: ExtensionAPI) {
     const modelId = ctx.model?.id || "";
     if (!isMCRModel(modelId)) return;
 
-    // Consume MCR data parsed by readEnergyFromTee from SSE stream comments
-    // (: mcr-session and : energy .mcr). This runs after index.ts's turn_end
-    // has awaited the tee reader, so the data is guaranteed to be available.
-    const { mcrSession, mcrEnergy } = consumePendingMCR();
+    // Consume raw SSE comment payloads published by index.ts via globalThis
+    // bridge. Reads fields directly from raw JSON — no hand-picked types.
+    const { energyRaw, mcrSessionRaw } = consumePendingMCR();
 
-    if (mcrSession) {
-      state.sessionFp = mcrSession.session_fp;
-      state.safeDropBefore = mcrSession.safe_drop_before;
-      state.storedThrough = mcrSession.stored_through;
-      state.lastMcrMeta = mcrSession;
+    if (mcrSessionRaw && typeof mcrSessionRaw.session_fp === "string") {
+      state.sessionFp = mcrSessionRaw.session_fp as string;
+      state.safeDropBefore = typeof mcrSessionRaw.safe_drop_before === "number" ? mcrSessionRaw.safe_drop_before as number : 0;
+      state.storedThrough = typeof mcrSessionRaw.stored_through === "number" ? mcrSessionRaw.stored_through as number : 0;
+      state.lastMcrMeta = {
+        session_fp: mcrSessionRaw.session_fp as string,
+        stored_through: state.storedThrough,
+        safe_drop_before: state.safeDropBefore,
+      };
     }
 
-    if (mcrEnergy) {
-      state.totalEnergyJoules += mcrEnergy.energy_joules;
-      state.lastEnergy = mcrEnergy;
-      if (mcrEnergy.mcr) {
-        state.sessionTurns = mcrEnergy.mcr.session_turns;
-        state.contextTokens = mcrEnergy.mcr.context_tokens;
+    if (energyRaw && typeof energyRaw.energy_joules === "number") {
+      state.totalEnergyJoules += energyRaw.energy_joules as number;
+      const mcr = energyRaw.mcr as Record<string, unknown> | undefined;
+      if (mcr && typeof mcr === "object") {
+        state.lastEnergy = {
+          energy_joules: energyRaw.energy_joules as number,
+          mcr: {
+            compaction_triggered: typeof mcr.compaction_triggered === "boolean" ? mcr.compaction_triggered as boolean : false,
+            session_turns: typeof mcr.session_turns === "number" ? mcr.session_turns as number : 0,
+            context_tokens: typeof mcr.context_tokens === "number" ? mcr.context_tokens as number : 0,
+            apc_hit_rate: typeof mcr.apc_hit_rate === "number" ? mcr.apc_hit_rate as number : undefined,
+            mcr_compacted_tokens: typeof mcr.mcr_compacted_tokens === "number" ? mcr.mcr_compacted_tokens as number : undefined,
+            mcr_original_tokens: typeof mcr.mcr_original_tokens === "number" ? mcr.mcr_original_tokens as number : undefined,
+          },
+        };
+        state.sessionTurns = typeof mcr.session_turns === "number" ? mcr.session_turns as number : state.sessionTurns;
+        state.contextTokens = typeof mcr.context_tokens === "number" ? mcr.context_tokens as number : state.contextTokens;
       }
     }
 
