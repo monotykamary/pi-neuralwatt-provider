@@ -39,7 +39,8 @@
   },
   "pi": {
     "extensions": [
-      "./index.ts"
+      "./index.ts",
+      "./neuralwatt-mcr.ts"
     ]
   }
 }

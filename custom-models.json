@@ -84,8 +84,8 @@
     }
   },
   {
-    "id": "glm-5.1-long",
-    "name": "GLM-5.1 Long",
+    "id": "neuralwatt/glm-5-long",
+    "name": "GLM-5 Long (MCR 1M)",
     "reasoning": true,
     "input": [
       "text"
@@ -97,14 +97,52 @@
       "cacheWrite": 0
     },
     "contextWindow": 1048576,
-    "maxTokens": 1048576,
+    "maxTokens": 16384,
     "compat": {
       "supportsDeveloperRole": false
     }
   },
   {
-    "id": "kimi-k2.6-long",
-    "name": "Kimi K2.6 Long",
+    "id": "neuralwatt/glm-5.1-long",
+    "name": "GLM-5.1 Long (MCR 1M)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "neuralwatt/glm-5.1-fast-long",
+    "name": "GLM-5.1 Fast Long (MCR 1M)",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "neuralwatt/kimi-k2.6-long",
+    "name": "Kimi K2.6 Long (MCR 1M)",
     "reasoning": true,
     "input": [
       "text",
@@ -117,12 +155,54 @@
       "cacheWrite": 0
     },
     "contextWindow": 1048576,
-    "maxTokens": 1048576,
+    "maxTokens": 16384,
     "compat": {
       "supportsDeveloperRole": false
     },
     "vision": {
       "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "neuralwatt/kimi-k2.5-long",
+    "name": "Kimi K2.5 Long (MCR 1M)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.52,
+      "output": 2.59,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "neuralwatt/claude-opus-cached",
+    "name": "Claude Opus (Cached)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1000000,
+    "maxTokens": 32000,
+    "compat": {
+      "supportsDeveloperRole": false
     }
   }
 ]
