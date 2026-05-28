@@ -78,6 +78,11 @@ interface SessionState {
   contextTokens: number;
   lastMcrMeta: MCRMetadata | null;
   lastEnergy: EnergyData | null;
+  // True when pi-vcc handled the most recent compaction for this MCR
+  // session. When set, the context hook skips its own drop because
+  // pi-vcc has already bounded the context and the server-side
+  // safe_drop_before indices are stale relative to pi-vcc's restructure.
+  piVccOverriding: boolean;
 }
 
 const state: SessionState = {
@@ -89,6 +94,7 @@ const state: SessionState = {
   contextTokens: 0,
   lastMcrMeta: null,
   lastEnergy: null,
+  piVccOverriding: false,
 };
 
 function isMCRModel(modelId: string): boolean {
@@ -478,6 +484,20 @@ export default function (pi: ExtensionAPI) {
       });
       return;
     }
+    // pi-vcc already bounded the context with its own compaction. The
+    // server's safe_drop_before indices are relative to the pre-compaction
+    // message list and would drop the wrong messages. pi-vcc's summary
+    // replaces the dropped range so the server context is still maintained.
+    if (state.piVccOverriding) {
+      nwlog("context_skip", {
+        reason: "pi_vcc_overriding",
+        model: modelId,
+        num_msgs: numMsgs,
+        safe_drop_before: state.safeDropBefore,
+        session_fp: state.sessionFp,
+      });
+      return;
+    }
 
     const [dropStart, dropEnd] = computeDropRange(
       event.messages as Array<{ type: string }>,
@@ -605,9 +625,19 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.on("session_before_compact", async (_event, ctx) => {
+  pi.on("session_before_compact", async (event, ctx) => {
     if (!isMCRModel(ctx.model?.id || "")) return;
     if (state.sessionFp) {
+      // pi-vcc signals it is handling compaction by setting
+      // event._piVccOverriding = true before returning its result.
+      // In that case, let it through — pi-vcc compacts instead of
+      // the server, and the context hook skips its own drop.
+      const piVccActive = (event as any)?._piVccOverriding === true;
+      if (piVccActive) {
+        state.piVccOverriding = true;
+        nwlog("compaction_pi_vcc", { session_fp: state.sessionFp });
+        return; // don't cancel — pi-vcc takes over
+      }
       nwlog("compaction_cancelled", { session_fp: state.sessionFp });
       return { cancel: true };
     }
@@ -623,6 +653,7 @@ export default function (pi: ExtensionAPI) {
     state.contextTokens = 0;
     state.lastMcrMeta = null;
     state.lastEnergy = null;
+    state.piVccOverriding = false;
     // Reset the UUID fallback so a new Pi session gets a fresh conversation
     // id when getSessionId() isn't usable. The Pi session id itself rotates
     // on its own.
