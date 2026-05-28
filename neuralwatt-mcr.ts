@@ -720,6 +720,32 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
   });
 
+  pi.on("session_tree", async (_event, ctx) => {
+    // Branch navigation invalidates MCR session state — sessionFp and
+    // safeDropBefore are tied to a specific message sequence that no
+    // longer matches the new branch. Clear everything and let the
+    // next server response repopulate. Energy is replayed from the
+    // session log (same as the main provider's session_tree handler).
+    state.sessionFp = null;
+    state.safeDropBefore = 0;
+    state.storedThrough = 0;
+    state.totalEnergyJoules = 0;
+    state.sessionTurns = 0;
+    state.contextTokens = 0;
+    state.lastMcrMeta = null;
+    state.lastEnergy = null;
+    state.piVccOverriding = false;
+
+    // Replay energy events from the session log for the new branch.
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === "custom" && entry.customType === "neuralwatt-energy" && entry.data) {
+        state.totalEnergyJoules += entry.data.energy_joules || 0;
+      }
+    }
+
+    updateStatusBar(ctx);
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     nwlog("session_shutdown", {
       final_session_fp: state.sessionFp,
