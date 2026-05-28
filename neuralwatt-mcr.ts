@@ -30,6 +30,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { randomUUID } from "node:crypto";
+import { consumePendingMCR } from "./index";
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
@@ -641,6 +642,34 @@ export default function (pi: ExtensionAPI) {
       nwlog("compaction_cancelled", { session_fp: state.sessionFp });
       return { cancel: true };
     }
+  });
+
+  pi.on("turn_end", async (_event, ctx) => {
+    const modelId = ctx.model?.id || "";
+    if (!isMCRModel(modelId)) return;
+
+    // Consume MCR data parsed by readEnergyFromTee from SSE stream comments
+    // (: mcr-session and : energy .mcr). This runs after index.ts's turn_end
+    // has awaited the tee reader, so the data is guaranteed to be available.
+    const { mcrSession, mcrEnergy } = consumePendingMCR();
+
+    if (mcrSession) {
+      state.sessionFp = mcrSession.session_fp;
+      state.safeDropBefore = mcrSession.safe_drop_before;
+      state.storedThrough = mcrSession.stored_through;
+      state.lastMcrMeta = mcrSession;
+    }
+
+    if (mcrEnergy) {
+      state.totalEnergyJoules += mcrEnergy.energy_joules;
+      state.lastEnergy = mcrEnergy;
+      if (mcrEnergy.mcr) {
+        state.sessionTurns = mcrEnergy.mcr.session_turns;
+        state.contextTokens = mcrEnergy.mcr.context_tokens;
+      }
+    }
+
+    updateStatusBar(ctx);
   });
 
   pi.on("session_start", async (_event, ctx) => {

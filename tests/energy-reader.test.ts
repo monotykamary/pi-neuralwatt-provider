@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { readEnergyFromTee, resetSessionState, getPendingState } from "../index";
+import { readEnergyFromTee, resetSessionState, getPendingState, consumePendingMCR, publishMCRRidge } from "../index";
 
 function makeStream(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
   return new ReadableStream({
@@ -270,5 +270,136 @@ describe("readEnergyFromTee", () => {
     const state = getPendingState();
     expect(state.pendingEnergyJoules).toBe(77.7);
     expect(state.pendingCostUsd).toBe(0.001);
+  });
+});
+
+describe("readEnergyFromTee MCR stream comments", () => {
+  beforeEach(() => {
+    resetSessionState();
+  });
+
+  it("parses : mcr-session comment", async () => {
+    const body = makeStream([
+      str(': mcr-session {"session_fp": "df77ba79e128f08f7ea2c0d1", "stored_through": 1, "safe_drop_before": 13}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    const state = getPendingState();
+    expect(state.pendingMcrSession).not.toBeNull();
+    expect(state.pendingMcrSession!.session_fp).toBe("df77ba79e128f08f7ea2c0d1");
+    expect(state.pendingMcrSession!.stored_through).toBe(1);
+    expect(state.pendingMcrSession!.safe_drop_before).toBe(13);
+  });
+
+  it("extracts .mcr sub-object from : energy comment", async () => {
+    const body = makeStream([
+      str(': energy {"energy_joules": 44.1, "mcr": {"compaction_triggered": false, "session_turns": 3, "context_tokens": 5, "apc_hit_rate": 0.85, "mcr_compacted_tokens": 420, "mcr_original_tokens": 1000}}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    const state = getPendingState();
+    expect(state.pendingMcrEnergy).not.toBeNull();
+    expect(state.pendingMcrEnergy!.energy_joules).toBe(44.1);
+    expect(state.pendingMcrEnergy!.mcr).toBeDefined();
+    expect(state.pendingMcrEnergy!.mcr!.compaction_triggered).toBe(false);
+    expect(state.pendingMcrEnergy!.mcr!.session_turns).toBe(3);
+    expect(state.pendingMcrEnergy!.mcr!.context_tokens).toBe(5);
+    expect(state.pendingMcrEnergy!.mcr!.apc_hit_rate).toBe(0.85);
+    expect(state.pendingMcrEnergy!.mcr!.mcr_compacted_tokens).toBe(420);
+    expect(state.pendingMcrEnergy!.mcr!.mcr_original_tokens).toBe(1000);
+  });
+
+  it("parses full realistic stream with energy, mcr-session, and cost", async () => {
+    const body = makeStream([
+      str('data: {"id":"chatcmpl-8b5e61f1de1e81cd","object":"chat.completion.chunk","created":1779942195,"model":"neuralwatt/glm-5.1-long","choices":[{"index":0,"delta":{"reasoning":"The"},"logprobs":null,"finish_reason":null,"token_ids":null}]}\n\n'),
+      str('data: {"id":"chatcmpl-8b5e61f1de1e81cd","object":"chat.completion.chunk","created":1779942195,"model":"neuralwatt/glm-5.1-long","choices":[{"index":0,"delta":{"content":"Hello"},"logprobs":null,"finish_reason":null,"token_ids":null}]}\n\n'),
+      str(': energy {"energy_joules": 44.1, "energy_kwh": 1.2251e-05, "avg_power_watts": 4124.0, "duration_seconds": 0.463, "attribution_method": "counter_prorated_token_pool_weighted_multi_gpu_8", "attribution_ratio": 0.0231, "carbon_g_co2eq": 0.0005146, "grid_carbon_intensity_gco2perkwhr": 42.0, "grid_id": "FI", "carbon_source": "agent_cache", "mcr": {"compaction_triggered": false, "inference_energy_joules": 44.1, "compaction_energy_joules": 0.0, "session_turns": 1, "context_tokens": 5, "mode": "virtual_context", "summaries_used": 0, "sync_compaction_ran": false, "chunks_pending_compaction": 0, "original_tokens": 11, "all_chunks_cached": false, "mcr_compacted_tokens": 0, "mcr_original_tokens": 11, "session_fp": "df77ba79e128f08f7ea2c0d1", "apc_hit_tokens": 0, "apc_miss_tokens": 5, "apc_hit_rate": 0.0, "current_turn_new_tokens": 399}}\n'),
+      str(': mcr-session {"session_fp": "df77ba79e128f08f7ea2c0d1", "stored_through": 1, "safe_drop_before": 0, "apc_hit_tokens": 0, "apc_miss_tokens": 5, "apc_hit_rate": 0.0, "current_turn_new_tokens": 399}\n'),
+      str(': cost {"request_cost_usd": 6.1e-05, "cache_savings_usd": 0.0, "allowance_remaining_usd": 74.623536, "budget_remaining_usd": 74.623536}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    const state = getPendingState();
+    // Energy
+    expect(state.pendingEnergyJoules).toBe(44.1);
+    expect(state.pendingCostUsd).toBeCloseTo(6.1e-05, 10);
+    expect(state.pendingDetail.attribution_method).toBe("counter_prorated_token_pool_weighted_multi_gpu_8");
+    // MCR session from : mcr-session
+    expect(state.pendingMcrSession).not.toBeNull();
+    expect(state.pendingMcrSession!.session_fp).toBe("df77ba79e128f08f7ea2c0d1");
+    expect(state.pendingMcrSession!.stored_through).toBe(1);
+    expect(state.pendingMcrSession!.safe_drop_before).toBe(0);
+    // MCR energy from : energy .mcr
+    expect(state.pendingMcrEnergy).not.toBeNull();
+    expect(state.pendingMcrEnergy!.energy_joules).toBe(44.1);
+    expect(state.pendingMcrEnergy!.mcr!.compaction_triggered).toBe(false);
+    expect(state.pendingMcrEnergy!.mcr!.session_turns).toBe(1);
+    expect(state.pendingMcrEnergy!.mcr!.context_tokens).toBe(5);
+    expect(state.pendingMcrEnergy!.mcr!.apc_hit_rate).toBe(0.0);
+    expect(state.pendingMcrEnergy!.mcr!.mcr_compacted_tokens).toBe(0);
+    expect(state.pendingMcrEnergy!.mcr!.mcr_original_tokens).toBe(11);
+  });
+
+  it("ignores malformed : mcr-session comment", async () => {
+    const body = makeStream([
+      str(': mcr-session not-json\n'),
+      str(': mcr-session {"no_session_fp": true}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    const state = getPendingState();
+    expect(state.pendingMcrSession).toBeNull();
+  });
+
+  it("ignores : energy without .mcr sub-object", async () => {
+    const body = makeStream([
+      str(': energy {"energy_joules": 10}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    const state = getPendingState();
+    expect(state.pendingEnergyJoules).toBe(10);
+    expect(state.pendingMcrEnergy).toBeNull();
+  });
+
+  it("consumePendingMCR returns and clears pending MCR data", async () => {
+    const body = makeStream([
+      str(': mcr-session {"session_fp": "abc123", "stored_through": 5, "safe_drop_before": 3}\n'),
+      str(': energy {"energy_joules": 99, "mcr": {"compaction_triggered": true, "session_turns": 2, "context_tokens": 10, "apc_hit_rate": 0.5}}\n'),
+    ]);
+    // readEnergyFromTee populates pendingMcrSession/pendingMcrEnergy as a
+    // side effect. After awaiting, publishMCRRidge copies them to globalThis
+    // so consumePendingMCR() can read them.
+    await readEnergyFromTee(body);
+    publishMCRRidge();
+
+    const result = consumePendingMCR();
+    expect(result.mcrSession).not.toBeNull();
+    expect(result.mcrSession!.session_fp).toBe("abc123");
+    expect(result.mcrSession!.safe_drop_before).toBe(3);
+    expect(result.mcrEnergy).not.toBeNull();
+    expect(result.mcrEnergy!.energy_joules).toBe(99);
+    expect(result.mcrEnergy!.mcr!.apc_hit_rate).toBe(0.5);
+
+    // Consumed — second call returns nulls
+    const result2 = consumePendingMCR();
+    expect(result2.mcrSession).toBeNull();
+    expect(result2.mcrEnergy).toBeNull();
+  });
+
+  it("resetSessionState clears pending MCR data", async () => {
+    const body = makeStream([
+      str(': mcr-session {"session_fp": "abc", "stored_through": 1, "safe_drop_before": 0}\n'),
+      str(': energy {"energy_joules": 50, "mcr": {"compaction_triggered": false, "session_turns": 1, "context_tokens": 5}}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    expect(getPendingState().pendingMcrSession).not.toBeNull();
+    expect(getPendingState().pendingMcrEnergy).not.toBeNull();
+
+    resetSessionState();
+
+    expect(getPendingState().pendingMcrSession).toBeNull();
+    expect(getPendingState().pendingMcrEnergy).toBeNull();
   });
 });
