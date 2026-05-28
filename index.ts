@@ -391,6 +391,11 @@ interface EnergyEvent {
   cache_savings_usd?: number;
   allowance_remaining_usd?: number;
   budget_remaining_usd?: number;
+  // Raw SSE comment payloads, stored verbatim for later reference.
+  // Not used for replay — just persisted to the session log.
+  sse_energy_raw?: Record<string, unknown>;
+  sse_mcr_session_raw?: Record<string, unknown>;
+  sse_cost_raw?: Record<string, unknown>;
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
@@ -402,6 +407,9 @@ let sessionCostUsd = 0;
 let pendingEnergyJoules = 0;
 let pendingCostUsd = 0;
 let pendingDetail: Partial<EnergyEvent> = {};
+let pendingEnergyRaw: Record<string, unknown> | null = null;
+let pendingMcrSessionRaw: Record<string, unknown> | null = null;
+let pendingCostRaw: Record<string, unknown> | null = null;
 let teeReader: Promise<void> | undefined;
 
 // Pending MCR data parsed from SSE stream comments (: mcr-session, : energy .mcr).
@@ -474,7 +482,7 @@ export function consumePendingMCR(): {
 
 // Exposed for testing
 export function getPendingState() {
-  return { pendingEnergyJoules, pendingCostUsd, pendingDetail, teeReader, pendingMcrSession, pendingMcrEnergy };
+  return { pendingEnergyJoules, pendingCostUsd, pendingDetail, teeReader, pendingMcrSession, pendingMcrEnergy, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw };
 }
 
 export function resetSessionState() {
@@ -485,6 +493,9 @@ export function resetSessionState() {
   pendingDetail = {};
   pendingMcrSession = null;
   pendingMcrEnergy = null;
+  pendingEnergyRaw = null;
+  pendingMcrSessionRaw = null;
+  pendingCostRaw = null;
   // Also clear the bridge so stale data doesn't leak across tests
   const bridge = (globalThis as any)[NW_MCR_BRIDGE];
   if (bridge) {
@@ -998,6 +1009,8 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
         pendingDetail.uncapped_attribution_ratio = energy.uncapped_attribution_ratio ?? pendingDetail.uncapped_attribution_ratio;
         pendingDetail.uncapped_energy_joules = energy.uncapped_energy_joules ?? pendingDetail.uncapped_energy_joules;
         pendingDetail.uncapped_energy_kwh = energy.uncapped_energy_kwh ?? pendingDetail.uncapped_energy_kwh;
+        // Store raw payload for session log persistence
+        pendingEnergyRaw = energy;
         // Extract .mcr sub-object for neuralwatt-mcr.ts status bar
         if (energy.mcr && typeof energy.mcr === "object") {
           const m = energy.mcr;
@@ -1026,6 +1039,8 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
             safe_drop_before: typeof mcr.safe_drop_before === "number" ? mcr.safe_drop_before : 0,
           };
         }
+        // Store raw payload for session log persistence
+        pendingMcrSessionRaw = mcr;
       } catch {
         // Malformed mcr-session comment, ignore
       }
@@ -1036,6 +1051,8 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
         pendingDetail.cache_savings_usd = cost.cache_savings_usd ?? pendingDetail.cache_savings_usd;
         pendingDetail.allowance_remaining_usd = cost.allowance_remaining_usd ?? pendingDetail.allowance_remaining_usd;
         pendingDetail.budget_remaining_usd = cost.budget_remaining_usd ?? pendingDetail.budget_remaining_usd;
+        // Store raw payload for session log persistence
+        pendingCostRaw = cost;
       } catch {
         // Malformed cost comment, ignore
       }
@@ -1217,18 +1234,24 @@ export default function (pi: ExtensionAPI) {
     // read it regardless of ESM module instance identity.
     publishMCRRidge();
 
-    if (pendingEnergyJoules > 0 || pendingCostUsd > 0) {
+    if (pendingEnergyJoules > 0 || pendingCostUsd > 0 || pendingEnergyRaw || pendingMcrSessionRaw || pendingCostRaw) {
       const entry: EnergyEvent = {
         energy_joules: pendingEnergyJoules,
         cost_usd: pendingCostUsd,
         ...pendingDetail,
       };
+      if (pendingEnergyRaw) entry.sse_energy_raw = pendingEnergyRaw;
+      if (pendingMcrSessionRaw) entry.sse_mcr_session_raw = pendingMcrSessionRaw;
+      if (pendingCostRaw) entry.sse_cost_raw = pendingCostRaw;
       pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;
       pendingEnergyJoules = 0;
       pendingCostUsd = 0;
       pendingDetail = {};
+      pendingEnergyRaw = null;
+      pendingMcrSessionRaw = null;
+      pendingCostRaw = null;
     }
     updateEnergyStatus(ctx);
   });

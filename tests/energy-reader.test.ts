@@ -338,6 +338,17 @@ describe("readEnergyFromTee MCR stream comments", () => {
     expect(state.pendingMcrEnergy!.mcr!.apc_hit_rate).toBe(0.0);
     expect(state.pendingMcrEnergy!.mcr!.mcr_compacted_tokens).toBe(0);
     expect(state.pendingMcrEnergy!.mcr!.mcr_original_tokens).toBe(11);
+    // Raw SSE payloads preserved verbatim
+    expect(state.pendingEnergyRaw).not.toBeNull();
+    expect((state.pendingEnergyRaw as any).carbon_g_co2eq).toBe(0.0005146);
+    expect((state.pendingEnergyRaw as any).grid_id).toBe("FI");
+    expect((state.pendingEnergyRaw as any).mcr.mode).toBe("virtual_context");
+    expect((state.pendingEnergyRaw as any).mcr.apc_hit_tokens).toBe(0);
+    expect(state.pendingMcrSessionRaw).not.toBeNull();
+    expect((state.pendingMcrSessionRaw as any).apc_hit_tokens).toBe(0);
+    expect((state.pendingMcrSessionRaw as any).current_turn_new_tokens).toBe(399);
+    expect(state.pendingCostRaw).not.toBeNull();
+    expect((state.pendingCostRaw as any).allowance_remaining_usd).toBe(74.623536);
   });
 
   it("ignores malformed : mcr-session comment", async () => {
@@ -401,5 +412,22 @@ describe("readEnergyFromTee MCR stream comments", () => {
 
     expect(getPendingState().pendingMcrSession).toBeNull();
     expect(getPendingState().pendingMcrEnergy).toBeNull();
+  });
+
+  it("raw SSE payloads are captured even with no energy/cost", async () => {
+    // Edge case: mcr-session comment arrives alone (no : energy, no : cost).
+    // The raw field should still be populated.
+    const body = makeStream([
+      str(': mcr-session {"session_fp": "onlyfp", "stored_through": 2, "safe_drop_before": 1}\n'),
+    ]);
+    await readEnergyFromTee(body);
+
+    const state = getPendingState();
+    expect(state.pendingEnergyJoules).toBe(0);
+    expect(state.pendingCostUsd).toBe(0);
+    expect(state.pendingMcrSessionRaw).not.toBeNull();
+    expect((state.pendingMcrSessionRaw as any).session_fp).toBe("onlyfp");
+    expect(state.pendingEnergyRaw).toBeNull();
+    expect(state.pendingCostRaw).toBeNull();
   });
 });
