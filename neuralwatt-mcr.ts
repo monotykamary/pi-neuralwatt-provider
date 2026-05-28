@@ -414,6 +414,13 @@ export default function (pi: ExtensionAPI) {
       state.safeDropBefore = mcrFromHeaders.safe_drop_before;
       state.storedThrough = mcrFromHeaders.stored_through;
       state.lastMcrMeta = mcrFromHeaders;
+      // The server has recalibrated safe_drop_before for the current
+      // message sequence. pi-vcc's override is no longer needed —
+      // the stale-index problem the flag guards against is resolved
+      // because these headers reflect the post-pi-vcc payload.
+      if (state.piVccOverriding) {
+        state.piVccOverriding = false;
+      }
     }
 
     updateStatusBar(ctx);
@@ -432,6 +439,9 @@ export default function (pi: ExtensionAPI) {
       state.safeDropBefore = mcrFromBody.safe_drop_before;
       state.storedThrough = mcrFromBody.stored_through;
       state.lastMcrMeta = mcrFromBody;
+      if (state.piVccOverriding) {
+        state.piVccOverriding = false;
+      }
     }
 
     const energy = extractEnergyFromBody(msg);
@@ -663,6 +673,9 @@ export default function (pi: ExtensionAPI) {
         stored_through: state.storedThrough,
         safe_drop_before: state.safeDropBefore,
       };
+      if (state.piVccOverriding) {
+        state.piVccOverriding = false;
+      }
     }
 
     if (energyRaw && typeof energyRaw.energy_joules === "number") {
