@@ -458,6 +458,7 @@ export default function (pi: ExtensionAPI) {
       });
       state.totalEnergyJoules += energy.energy_joules;
       state.lastEnergy = energy;
+      pi.appendEntry("neuralwatt-energy", { energy_joules: energy.energy_joules });
       if (energy.mcr) {
         state.sessionTurns = energy.mcr.session_turns;
         state.contextTokens = energy.mcr.context_tokens;
