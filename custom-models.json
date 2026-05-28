@@ -82,5 +82,47 @@
     "vision": {
       "maxImagesPerRequest": 20
     }
+  },
+  {
+    "id": "glm-5.1-long",
+    "name": "GLM-5.1 Long",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 1048576,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
+    "id": "kimi-k2.6-long",
+    "name": "Kimi K2.6 Long",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 3.22,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 1048576,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
   }
 ]
