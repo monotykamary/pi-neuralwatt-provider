@@ -311,15 +311,17 @@ export default function (pi: ExtensionAPI) {
   }
 
   function updateStatusBar(ctx: any) {
-    if (state.sessionFp) {
-      const parts: string[] = [`MCR ${state.sessionFp.slice(0, 8)}`];
-      if (state.safeDropBefore > 0) {
-        parts.push(`drop<${state.safeDropBefore}`);
-      }
-      ctx.ui.setStatus(MCR_STATUS_KEY, parts.join(" | "));
-    } else {
+    if (!state.sessionFp) {
       ctx.ui.setStatus(MCR_STATUS_KEY, "");
+      ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
+      return;
     }
+
+    const mcrParts: string[] = [`MCR ${state.sessionFp.slice(0, 8)}`];
+    if (state.safeDropBefore > 0) {
+      mcrParts.push(`drop<${state.safeDropBefore}`);
+    }
+    ctx.ui.setStatus(MCR_STATUS_KEY, mcrParts.join(" | "));
 
     if (state.totalEnergyJoules > 0) {
       const parts: string[] = [`⚡ ${formatEnergy(state.totalEnergyJoules)}`];
