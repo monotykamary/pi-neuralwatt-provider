@@ -864,17 +864,16 @@ class StatusLineWidget {
 }
 
 function updateEnergyStatus(ctx: any): void {
-  // Show the status line when there is neuralwatt activity in this session.
-  // This avoids showing quota/energy data in sessions that use a different provider.
-  // We also show quota (but not energy) when cachedQuota is available, even
-  // before any energy is recorded — this ensures the widget/status area
-  // displays plan/allowance info on the very first turn.
+  // Show the status line only after neuralwatt activity is recorded in this
+  // session. This avoids showing quota/energy data in sessions that use a
+  // different provider, and prevents the quota from appearing before any
+  // turn has completed (quota is pre-fetched eagerly so it's ready to display
+  // as soon as the first turn ends, alongside the energy data).
   const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0;
-  const hasQuota = cachedQuota !== null;
 
   // Statusbar uses full-fidelity text (no width constraint)
   const energyFull = hasNeuralwattSession ? buildEnergyText(Infinity) : undefined;
-  const quotaFull = (hasNeuralwattSession || hasQuota) ? buildQuotaText(Infinity) : undefined;
+  const quotaFull = hasNeuralwattSession ? buildQuotaText(Infinity) : undefined;
 
   // ─── Status bar ─────────────────────────────────────────────────────────
   const energyStatusbar = config.energy === "statusbar" && energyFull;
@@ -1104,9 +1103,9 @@ export default function (pi: ExtensionAPI) {
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
     resolveApiKey(ctx.modelRegistry).then(() => {
-      // Always fetch quota eagerly — even before any energy is recorded —
-      // so the widget/status area shows plan/allowance info on the very
-      // first turn rather than waiting until agent_end.
+      // Pre-fetch quota eagerly so it's cached and ready to display as
+      // soon as the first turn completes (updateEnergyStatus gates display
+      // on hasNeuralwattSession, so nothing is shown before then).
       if (config.quota !== "off") {
         fetchQuota(cachedApiKey || "", signal).then((quota) => {
           if (quota && !signal.aborted) {
