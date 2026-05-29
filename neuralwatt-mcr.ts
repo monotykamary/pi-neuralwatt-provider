@@ -1,31 +1,4 @@
-/**
- * Neuralwatt MCR (Managed Context Runtime) Extension
- *
- * Provides transparent long-context (1M virtual context) for Neuralwatt's MCR
- * models. The extension:
- *
- * - Context drop: reads X-MCR-Safe-Drop-Before from response headers and
- *   trims old messages the server has already stored.
- * - Session fingerprint: sends X-MCR-Session-FP on subsequent requests so
- *   the server can resume the same compacted session.
- * - Compaction suppression: cancels Pi's built-in compaction when MCR is
- *   active (the server handles it).
- * - Anchor protection: preserves the first 3 user messages (MCR's fingerprint
- *   anchors) so sessions stay stable.
- * - MCR status bar: adds `nw-mcr` (session fingerprint + drop threshold) to
- *   Pi's footer.
- *
- * The X-NW-Conversation-ID header wiring is handled by the main provider
- * extension (index.ts), which registers the header in its registerProvider
- * call. This extension manages the env var value via process.env so the SDK
- * picks it up on each request.
- *
- * Only activates for MCR-capable models. Non-MCR models are unaffected.
- *
- * Ported from: https://github.com/neuralwatt/neuralwatt-tools/tree/main/plugins/pi/extensions
- */
-
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -84,6 +57,12 @@ interface SessionState {
   // pi-vcc has already bounded the context and the server-side
   // safe_drop_before indices are stale relative to pi-vcc's restructure.
   piVccOverriding: boolean;
+  // Issue #3914: in-flight request UX. When an MCR request is sent we flip
+  // ``inFlightSince`` to the wall-clock send time so the chip can show
+  // "optimizing context…" until the response stream produces real model
+  // output. Cleared on first ``message_update`` or on ``message_end``.
+  inFlightSince: number | null;
+  inFlightTickerHandle: NodeJS.Timeout | null;
 }
 
 const state: SessionState = {
@@ -96,7 +75,14 @@ const state: SessionState = {
   lastMcrMeta: null,
   lastEnergy: null,
   piVccOverriding: false,
+  inFlightSince: null,
+  inFlightTickerHandle: null,
 };
+
+// Issue #3914: how often to refresh the chip while the in-flight indicator
+// is showing, so the elapsed counter advances visibly. 500ms is fast enough
+// to feel live but well below the refresh budget of Pi's footer.
+const IN_FLIGHT_TICK_MS = 500;
 
 function isMCRModel(modelId: string): boolean {
   return (
@@ -196,6 +182,17 @@ function formatEnergy(joules: number): string {
   return `${(joules / 1000).toFixed(2)}kJ`;
 }
 
+// Issue #3914: render an in-flight elapsed-time stamp for the chip. Short
+// formats (<10s → "1.4s", >=10s → "12s", >=60s → "1m 5s") to keep the chip
+// from growing wide enough to push other footer widgets off-screen.
+function formatElapsed(ms: number): string {
+  if (ms < 10000) return `${(ms / 1000).toFixed(1)}s`;
+  const seconds = Math.floor(ms / 1000);
+  if (seconds < 60) return `${seconds}s`;
+  const minutes = Math.floor(seconds / 60);
+  return `${minutes}m ${seconds % 60}s`;
+}
+
 // Extract the role/type marker from an entry. Pi's outbound HTTP payload
 // uses OpenAI-shape ``role`` (``user``/``assistant``/``tool``/``system``);
 // Pi's internal session-log records sometimes serialize the same field as
@@ -262,11 +259,8 @@ function getUuidFallback(): string {
 
 type ConversationIdSource = "pi-session" | "uuid-fallback";
 
-// Must match the env var name used in index.ts registerProvider headers.
-const CONV_ID_ENV = "X_NW_CONVERSATION_ID";
-
 function resolveConversationId(
-  ctx: any,
+  ctx: ExtensionContext,
 ): { id: string; source: ConversationIdSource } {
   // Preferred source: Pi's own session id. Stable across auto-compact in a
   // single `pi` session, distinct across sessions, naturally string-form.
@@ -301,27 +295,63 @@ export default function (pi: ExtensionAPI) {
   const MCR_STATUS_KEY = "nw-mcr";
   const ENERGY_STATUS_KEY = "nw-energy";
 
-  // Seed the conversation ID env var with a UUID at extension load so any
+  // ── X-NW-Conversation-ID header wiring ──────────────────────────────
+  // pi-coding-agent's `before_provider_request` is a *body* hook — the
+  // earlier `payload.headers[...]` mutation reached extension memory only,
+  // never the HTTP wire. The documented per-request header path is
+  // `pi.registerProvider({ headers })`, whose values are env-var names that
+  // the SDK re-reads from `process.env` on every stream
+  // (dist/core/resolve-config-value.js). Net: real HTTP header, no body
+  // touch, no APC impact.
+  //
+  // Boot order: we seed the env var with a UUID at extension load so any
   // request fired before the first `before_provider_request` tick still
-  // carries *some* id. The main provider extension (index.ts) registers
-  // the header `{ "X-NW-Conversation-ID": CONV_ID_ENV }` in its
-  // registerProvider call, and the SDK re-reads process.env on every stream.
+  // carries *some* id. The hook upgrades it to Pi's stable per-invocation
+  // session id (see resolveConversationId). Subsequent requests in the
+  // same `pi` invocation reuse the upgraded value — invocation-stable
+  // session_fp by construction.
+  const CONV_ID_ENV = "X_NW_CONVERSATION_ID";
   if (!process.env[CONV_ID_ENV]) {
     process.env[CONV_ID_ENV] = getUuidFallback();
   }
+  // `apiKey` mirrors the env-var name from ~/.pi/agent/models.json so the
+  // partial config doesn't shadow the existing auth. `storeProviderRequestConfig`
+  // doesn't merge with the models.json-derived entry (different map), so we
+  // have to re-state any field we need; only apiKey here, since baseUrl/api
+  // flow through via the override-only branch of applyProviderConfig.
+  pi.registerProvider("neuralwatt", {
+    apiKey: "NEURALWATT_API_KEY",
+    headers: { "X-NW-Conversation-ID": CONV_ID_ENV },
+  });
 
-  function updateStatusBar(ctx: any) {
-    if (!state.sessionFp) {
+  function updateStatusBar(ctx: ExtensionContext) {
+    // Issue #3914: when an MCR request is in flight, show an "optimizing
+    // context…" indicator with elapsed time so the user knows the gateway
+    // is working (compaction or KV pre-warm) and the model hasn't hung.
+    // Dio's first-MCR-tester feedback (2026-05-28) named the exact failure
+    // mode this fixes: a silent multi-second pause looking identical to a
+    // crashed model. The in-flight indicator takes precedence over the
+    // standard "MCR <fp> | drop<N>" chip text — once the response stream
+    // produces real model output, ``markStreamProducing`` clears
+    // ``inFlightSince`` and the chip reverts to the standard view.
+    if (state.inFlightSince !== null) {
+      const elapsedMs = Date.now() - state.inFlightSince;
+      const fpPrefix = state.sessionFp
+        ? `MCR ${state.sessionFp.slice(0, 8)} | `
+        : "MCR | ";
+      ctx.ui.setStatus(
+        MCR_STATUS_KEY,
+        `${fpPrefix}optimizing context… ${formatElapsed(elapsedMs)}`,
+      );
+    } else if (state.sessionFp) {
+      const parts: string[] = [`MCR ${state.sessionFp.slice(0, 8)}`];
+      if (state.safeDropBefore > 0) {
+        parts.push(`drop<${state.safeDropBefore}`);
+      }
+      ctx.ui.setStatus(MCR_STATUS_KEY, parts.join(" | "));
+    } else {
       ctx.ui.setStatus(MCR_STATUS_KEY, "");
-      ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
-      return;
     }
-
-    const mcrParts: string[] = [`MCR ${state.sessionFp.slice(0, 8)}`];
-    if (state.safeDropBefore > 0) {
-      mcrParts.push(`drop<${state.safeDropBefore}`);
-    }
-    ctx.ui.setStatus(MCR_STATUS_KEY, mcrParts.join(" | "));
 
     if (state.totalEnergyJoules > 0) {
       const parts: string[] = [`⚡ ${formatEnergy(state.totalEnergyJoules)}`];
@@ -339,6 +369,53 @@ export default function (pi: ExtensionAPI) {
     } else {
       ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
     }
+  }
+
+  // Issue #3914: lifecycle helpers for the in-flight indicator. We bracket
+  // the wait window with ``markRequestSent`` (on before_provider_request)
+  // and ``markStreamProducing`` (on the first message_update / message_end
+  // that carries real model output).
+  //
+  // The chip's elapsed counter advances via a ``setInterval`` that re-calls
+  // ``updateStatusBar`` every ~0.5s. Without the ticker the chip would
+  // freeze at "0.0s" until the response arrives, defeating the point.
+  //
+  // Forward-compatible note: the gateway (issue #3914 server side) also
+  // emits ``event: mcr-status`` SSE frames carrying {phase: compacting |
+  // warming | idle, elapsed_ms}. Pi's extension API does not currently
+  // surface raw SSE event types other than the standard message deltas
+  // (see types.d.ts::AssistantMessageEvent — only text/thinking/toolcall
+  // types reach extensions). When Pi adds an SSE-event hook we can swap
+  // the time-based estimate below for the server's authoritative phase
+  // signal and distinguish "compacting" from "warming" in the chip text.
+  function markRequestSent(ctx: ExtensionContext) {
+    state.inFlightSince = Date.now();
+    if (state.inFlightTickerHandle !== null) {
+      clearInterval(state.inFlightTickerHandle);
+    }
+    state.inFlightTickerHandle = setInterval(() => {
+      // Defensive: stop ticking if the in-flight flag was cleared
+      // out-of-band (e.g. session_start reset).
+      if (state.inFlightSince === null) {
+        if (state.inFlightTickerHandle !== null) {
+          clearInterval(state.inFlightTickerHandle);
+          state.inFlightTickerHandle = null;
+        }
+        return;
+      }
+      updateStatusBar(ctx);
+    }, IN_FLIGHT_TICK_MS);
+    updateStatusBar(ctx);
+  }
+
+  function markStreamProducing(ctx: ExtensionContext) {
+    if (state.inFlightSince === null) return;
+    state.inFlightSince = null;
+    if (state.inFlightTickerHandle !== null) {
+      clearInterval(state.inFlightTickerHandle);
+      state.inFlightTickerHandle = null;
+    }
+    updateStatusBar(ctx);
   }
 
   // Upgrade X_NW_CONVERSATION_ID to Pi's stable session-id as early as
@@ -372,6 +449,7 @@ export default function (pi: ExtensionAPI) {
     // payload, which is invisible to Pi — without these headers in the
     // log we can't tell "ref-recovery ran with no refs available" apart
     // from "ref-recovery never ran". Counts only, no preview/sha values.
+    // Server-side emission: API_Gateway/app/services/mcr_anthropic_native_proxy.py::_add_mcr_refs_headers
     const refsRecovered = parseOptionalIntHeader(headers, "x-mcr-refs-recovered");
     const refsInForward = parseOptionalIntHeader(headers, "x-mcr-refs-in-forward");
     const refsSkippedBudget = parseOptionalIntHeader(
@@ -426,9 +504,26 @@ export default function (pi: ExtensionAPI) {
     updateStatusBar(ctx);
   });
 
+  // Issue #3914: clear the in-flight indicator on the first message_update
+  // for an MCR model — at that point real model tokens are flowing, the
+  // "is it hung?" perception is gone, and the chip should revert to the
+  // standard MCR-fingerprint view. The MessageUpdateEvent fires for any
+  // assistant streaming update (text/thinking/toolcall deltas); we don't
+  // need to narrow further since any of these prove the wait is over.
+  pi.on("message_update", async (event, ctx) => {
+    if (event.message.role !== "assistant") return;
+    if (!isMCRModel(ctx.model?.id || "")) return;
+    markStreamProducing(ctx);
+  });
+
   pi.on("message_end", async (event, ctx) => {
     if (event.message.role !== "assistant") return;
     if (!isMCRModel(ctx.model?.id || "")) return;
+
+    // Issue #3914: backstop — if a response was short enough that no
+    // message_update ever fired, message_end is the latest possible
+    // chance to clear the indicator before it gets stale.
+    markStreamProducing(ctx);
 
     const msg = event.message as Record<string, unknown>;
 
@@ -532,7 +627,11 @@ export default function (pi: ExtensionAPI) {
 
     // Drop messages in the full-index range [dropStart, dropEnd). Both
     // bounds are in the same indexing space as `event.messages` and as the
-    // server's `safe_drop_before` (every message counted, all roles).
+    // server's `safe_drop_before` (every message counted, all roles). The
+    // earlier version maintained a separate user+assistant-subset counter
+    // and compared it against full-index bounds, which silently nuked the
+    // most-recent user prompts (#bug discovered 2026-05-16 — see commit
+    // message for the trace).
     const clampedEnd = Math.min(dropEnd, event.messages.length);
     const filtered = event.messages.filter(
       (_: unknown, i: number) => i < dropStart || i >= clampedEnd,
@@ -569,10 +668,20 @@ export default function (pi: ExtensionAPI) {
 
     const payload = event.payload as Record<string, unknown>;
 
+    // Issue #3914: start the in-flight indicator. The chip shows
+    // "optimizing context… 1.4s" with the elapsed counter advancing every
+    // ~0.5s until the model starts producing real output (handled in
+    // ``message_update``). For MCR-long requests this window can be
+    // multiple seconds (compaction + KV pre-warm + TTFT); without the
+    // indicator the chat UI is indistinguishable from a hung model.
+    markRequestSent(ctx);
+
     // Upgrade the X_NW_CONVERSATION_ID env var (seeded with a UUID at
     // extension load) to Pi's stable per-invocation session id. The SDK
     // re-reads process.env on every stream, so this propagates to the
-    // next outbound request as the real X-NW-Conversation-ID HTTP header.
+    // next outbound request as the real X-NW-Conversation-ID HTTP header
+    // — no body touch. See the header-wiring block at the top of this fn
+    // and pi-header-surface.md for the full mechanism trace.
     const { id: conversationId, source: conversationIdSource } =
       resolveConversationId(ctx);
     process.env[CONV_ID_ENV] = conversationId;
@@ -581,8 +690,10 @@ export default function (pi: ExtensionAPI) {
       source: conversationIdSource,
     });
 
-    // X-MCR-Session-FP fast-path hint: currently a no-op; diagnostic log
-    // retained so we still see when the gateway has assigned an fp.
+    // X-MCR-Session-FP fast-path hint: previously set via the same
+    // body-only mechanism that never reached the wire. Currently a no-op;
+    // diagnostic log retained so we still see when the gateway has
+    // assigned an fp. Revisit via registerProvider if we want it back.
     if (state.sessionFp) {
       nwlog("before_provider_request_fp_set", {
         session_fp: state.sessionFp,
@@ -713,6 +824,15 @@ export default function (pi: ExtensionAPI) {
     state.lastMcrMeta = null;
     state.lastEnergy = null;
     state.piVccOverriding = false;
+    // Issue #3914: clear any in-flight indicator left over from a prior
+    // session (defensive — session_start would normally fire after any
+    // active request has completed, but a forced restart or fork can land
+    // here while inFlightSince is still set).
+    state.inFlightSince = null;
+    if (state.inFlightTickerHandle !== null) {
+      clearInterval(state.inFlightTickerHandle);
+      state.inFlightTickerHandle = null;
+    }
     // Reset the UUID fallback so a new Pi session gets a fresh conversation
     // id when getSessionId() isn't usable. The Pi session id itself rotates
     // on its own.
@@ -759,6 +879,13 @@ export default function (pi: ExtensionAPI) {
       total_energy_joules: state.totalEnergyJoules,
       session_turns: state.sessionTurns,
     });
+    // Issue #3914: tear down the in-flight ticker so the interval handle
+    // doesn't outlive the session.
+    state.inFlightSince = null;
+    if (state.inFlightTickerHandle !== null) {
+      clearInterval(state.inFlightTickerHandle);
+      state.inFlightTickerHandle = null;
+    }
     ctx.ui.setStatus(MCR_STATUS_KEY, "");
     ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
   });
