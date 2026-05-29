@@ -320,8 +320,8 @@ export default function (pi: ExtensionAPI) {
   // have to re-state any field we need; only apiKey here, since baseUrl/api
   // flow through via the override-only branch of applyProviderConfig.
   pi.registerProvider("neuralwatt", {
-    apiKey: "NEURALWATT_API_KEY",
-    headers: { "X-NW-Conversation-ID": CONV_ID_ENV },
+    apiKey: "$NEURALWATT_API_KEY",
+    headers: { "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID" },
   });
 
   function updateStatusBar(ctx: ExtensionContext) {

@@ -1086,11 +1086,11 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerProvider("neuralwatt", {
     baseUrl: BASE_URL,
-    apiKey: "NEURALWATT_API_KEY",
+    apiKey: "$NEURALWATT_API_KEY",
     api: "neuralwatt",
     models: staleModels,
     streamSimple: streamNeuralwatt,
-    headers: { "X-NW-Conversation-ID": CONV_ID_ENV },
+    headers: { "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID" },
   });
 
   // Revalidate in background on session_start
@@ -1119,11 +1119,11 @@ export default function (pi: ExtensionAPI) {
         if (freshBase && !signal.aborted) {
           pi.registerProvider("neuralwatt", {
             baseUrl: BASE_URL,
-            apiKey: "NEURALWATT_API_KEY",
+            apiKey: "$NEURALWATT_API_KEY",
             api: "neuralwatt",
             models: buildModels(freshBase, customModels, patches),
             streamSimple: streamNeuralwatt,
-            headers: { "X-NW-Conversation-ID": CONV_ID_ENV },
+            headers: { "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID" },
           });
         }
       });
