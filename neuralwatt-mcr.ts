@@ -358,6 +358,8 @@ export default function (pi: ExtensionAPI) {
       ctx.ui.setStatus(MCR_STATUS_KEY, parts.join(" | "));
     } else {
       ctx.ui.setStatus(MCR_STATUS_KEY, "");
+      ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
+      return;
     }
 
     if (state.totalEnergyJoules > 0) {
@@ -681,7 +683,9 @@ export default function (pi: ExtensionAPI) {
     // ``message_update``). For MCR-long requests this window can be
     // multiple seconds (compaction + KV pre-warm + TTFT); without the
     // indicator the chat UI is indistinguishable from a hung model.
-    markRequestSent(ctx);
+    if (state.sessionFp) {
+      markRequestSent(ctx);
+    }
 
     // Upgrade the X_NW_CONVERSATION_ID env var (seeded with a UUID at
     // extension load) to Pi's stable per-invocation session id. The SDK
