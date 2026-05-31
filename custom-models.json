@@ -19,6 +19,25 @@
     }
   },
   {
+    "id": "neuralwatt/glm-5.1-nvfp4-canary",
+    "name": "GLM-5.1 NVFP4 Canary",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202736,
+    "maxTokens": 202736,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
     "id": "kimi-k2.6-canary",
     "name": "Kimi K2.6 Canary",
     "reasoning": true,
