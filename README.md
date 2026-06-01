@@ -39,6 +39,13 @@ A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](htt
 | Kimi K2.6 Canary | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | GLM-5.1 Flex | 203K | ❌ | ✅ | $1.10 | $3.60 |
 | Kimi K2.6 Flex | 262K | ✅ | ✅ | $0.69 | $3.22 |
+| GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
+| GLM-5.1 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
+| GLM-5.1 Long Coherence (MCR 1M Canary) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
+| GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
+| Kimi K2.6 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.69 | $3.22 |
+| Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | $2.59 |
+| Claude Opus (Cached) | 1.0M | ❌ | ✅ | $0.00 | $0.00 |
 
 ## Authentication
 
