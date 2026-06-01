@@ -141,6 +141,25 @@
     }
   },
   {
+    "id": "neuralwatt/glm-5.1-long-coherence-canary",
+    "name": "GLM-5.1 Long Coherence (MCR 1M Canary)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
     "id": "neuralwatt/glm-5.1-fast-long",
     "name": "GLM-5.1 Fast Long (MCR 1M)",
     "reasoning": false,
