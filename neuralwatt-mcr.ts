@@ -89,6 +89,12 @@ const state: SessionState = {
   inFlightTickerHandle: null,
 };
 
+// Track the current Pi session ID to guard against double session_start
+// events (where session_start fires without a preceding session_shutdown).
+// When the session ID hasn't changed, the destructive state reset is
+// skipped — in-flight MCR state is still valid.
+let lastSessionId: string | null = null;
+
 // How often to refresh the chip while the in-flight indicator is showing, so
 // the elapsed counter advances visibly. 500ms is fast enough to feel live but
 // well below the refresh budget of Pi's footer.
@@ -493,15 +499,53 @@ export default function (pi: ExtensionAPI) {
     updateStatusBar(ctx);
   }
 
-  // Upgrade X_NW_CONVERSATION_ID to Pi's stable session-id as early as
-  // possible — `session_start` fires before any provider request and is the
-  // earliest hook with ctx. Without this, the first request of each fresh
-  // `pi -p` invocation would carry the boot-time UUID (different per
-  // process) and produce a cold-cache session_fp that drags APC averages
-  // down on `--continue` chains.
   pi.on("session_start", async (_event, ctx) => {
-    const { id: conversationId } = resolveConversationId(ctx);
+    // Upgrade X_NW_CONVERSATION_ID to Pi's stable session-id as early as
+    // possible — session_start fires before any provider request and is the
+    // earliest hook with ctx.
+    const { id: conversationId, source: conversationIdSource } =
+      resolveConversationId(ctx);
     process.env[CONV_ID_ENV] = conversationId;
+
+    // Guard against double-fire: Pi sometimes emits session_start without
+    // a preceding session_shutdown. When the session ID hasn't changed,
+    // skip the destructive state reset — in-flight MCR state is still
+    // valid.
+    const newSessionId = ctx.sessionManager?.getSessionId?.() ?? "unknown";
+    if (newSessionId === lastSessionId) {
+      nwlog("session_start_duplicate", {
+        session_id: newSessionId,
+        source: conversationIdSource,
+      });
+      return;
+    }
+
+    nwlog("session_start", {
+      extension_version: EXTENSION_VERSION,
+      session_id: newSessionId,
+      source: conversationIdSource,
+    });
+    lastSessionId = newSessionId;
+
+    state.sessionFp = null;
+    state.safeDropBefore = 0;
+    state.storedThrough = 0;
+    state.totalEnergyJoules = 0;
+    state.sessionTurns = 0;
+    state.contextTokens = 0;
+    state.lastMcrMeta = null;
+    state.lastEnergy = null;
+    state.inFlightSince = null;
+    if (state.inFlightTickerHandle !== null) {
+      clearInterval(state.inFlightTickerHandle);
+      state.inFlightTickerHandle = null;
+    }
+    // Do NOT null uuidFallback here — it persists across auto-compact
+    // within one `pi` invocation. Nulling it on session_start causes
+    // conversation ID thrashing during double-start races (the root cause
+    // of the "two brains" MCR session_fp flip).
+    ctx.ui.setStatus(MCR_STATUS_KEY, "");
+    ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
   });
 
   pi.on("after_provider_response", async (event, ctx) => {
@@ -632,6 +676,10 @@ export default function (pi: ExtensionAPI) {
     const modelId = ctx.model?.id || "";
     const numMsgs = event.messages.length;
 
+    // Check MCR model FIRST — non-MCR models never participate in
+    // server-side compaction and should be invisible to this extension.
+    if (!isMCRModel(modelId)) return;
+
     if (!state.sessionFp) {
       nwlog("context_skip", {
         reason: "no_session_fp",
@@ -647,14 +695,6 @@ export default function (pi: ExtensionAPI) {
         num_msgs: numMsgs,
         safe_drop_before: state.safeDropBefore,
         session_fp: state.sessionFp,
-      });
-      return;
-    }
-    if (!isMCRModel(modelId)) {
-      nwlog("context_skip", {
-        reason: "not_mcr_model",
-        model: modelId,
-        num_msgs: numMsgs,
       });
       return;
     }
@@ -852,33 +892,6 @@ export default function (pi: ExtensionAPI) {
     updateStatusBar(ctx);
   });
 
-  pi.on("session_start", async (_event, ctx) => {
-    nwlog("session_start", { extension_version: EXTENSION_VERSION });
-    state.sessionFp = null;
-    state.safeDropBefore = 0;
-    state.storedThrough = 0;
-    state.totalEnergyJoules = 0;
-    state.sessionTurns = 0;
-    state.contextTokens = 0;
-    state.lastMcrMeta = null;
-    state.lastEnergy = null;
-    // Clear any in-flight indicator left over from a prior
-    // session (defensive — session_start would normally fire after any
-    // active request has completed, but a forced restart or fork can land
-    // here while inFlightSince is still set).
-    state.inFlightSince = null;
-    if (state.inFlightTickerHandle !== null) {
-      clearInterval(state.inFlightTickerHandle);
-      state.inFlightTickerHandle = null;
-    }
-    // Reset the UUID fallback so a new Pi session gets a fresh conversation
-    // id when getSessionId() isn't usable. The Pi session id itself rotates
-    // on its own.
-    uuidFallback = null;
-    ctx.ui.setStatus(MCR_STATUS_KEY, "");
-    ctx.ui.setStatus(ENERGY_STATUS_KEY, "");
-  });
-
   pi.on("session_tree", async (_event, ctx) => {
     // Branch navigation invalidates MCR session state — sessionFp and
     // safeDropBefore are tied to a specific message sequence that no
@@ -916,6 +929,10 @@ export default function (pi: ExtensionAPI) {
       total_energy_joules: state.totalEnergyJoules,
       session_turns: state.sessionTurns,
     });
+    // Clear the session ID guard so the next session_start (which starts
+    // a genuinely new session after a shutdown) always performs the full
+    // state reset.
+    lastSessionId = null;
     // Tear down the in-flight ticker so the interval handle
     // doesn't outlive the session.
     state.inFlightSince = null;

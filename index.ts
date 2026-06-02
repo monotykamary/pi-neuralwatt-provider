@@ -63,7 +63,6 @@ import { transformContextForImageLimit } from "./transform";
 import fs from "fs";
 import os from "os";
 import path from "path";
-import { randomUUID } from "node:crypto";
 
 // ─── Display Configuration ────────────────────────────────────────────────────
 
@@ -217,16 +216,6 @@ function buildModels(
 const PROVIDER_ID = "neuralwatt";
 const BASE_URL = "https://api.neuralwatt.com/v1";
 const MODELS_URL = `${BASE_URL}/models`;
-
-// MCR conversation ID header wiring. The neuralwatt-mcr.ts extension sets
-// process.env[CONV_ID_ENV] on session_start / before_provider_request, and
-// the SDK re-reads it on every request to send as the X-NW-Conversation-ID
-// HTTP header. Seeded with a fallback UUID here so early requests still
-// carry an id.
-const CONV_ID_ENV = "X_NW_CONVERSATION_ID";
-if (!process.env[CONV_ID_ENV]) {
-  process.env[CONV_ID_ENV] = randomUUID();
-}
 const CACHE_DIR = path.join(os.homedir(), ".pi", "agent", "cache");
 const CACHE_PATH = path.join(CACHE_DIR, `${PROVIDER_ID}-models.json`);
 const LIVE_FETCH_TIMEOUT_MS = 8000;
@@ -1089,7 +1078,6 @@ export default function (pi: ExtensionAPI) {
     api: "neuralwatt",
     models: staleModels,
     streamSimple: streamNeuralwatt,
-    headers: { "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID" },
   });
 
   // Revalidate in background on session_start
@@ -1122,7 +1110,6 @@ export default function (pi: ExtensionAPI) {
             api: "neuralwatt",
             models: buildModels(freshBase, customModels, patches),
             streamSimple: streamNeuralwatt,
-            headers: { "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID" },
           });
         }
       });
