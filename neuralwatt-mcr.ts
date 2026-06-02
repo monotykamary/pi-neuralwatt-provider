@@ -12,7 +12,11 @@ import { consumePendingMCR } from "./index";
 //   2.1.0 — send the extension version on the wire as X-NW-MCR-Ext-Version so
 //           the gateway can log which client revision served a request (server
 //           logs previously had no way to tell a user's extension version).
-const EXTENSION_VERSION = "2.1.0";
+//   2.1.1 — isMCRModel-first guard in the `context` handler so non-MCR models
+//           no longer flood the log with `no_session_fp` skips (tools#38).
+//           Verified the X-NW-Conversation-ID header is re-read live per
+//           request by the SDK (registerProvider headers mechanism).
+const EXTENSION_VERSION = "2.1.1";
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
