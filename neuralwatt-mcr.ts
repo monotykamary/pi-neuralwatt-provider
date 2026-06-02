@@ -61,11 +61,6 @@ interface SessionState {
   contextTokens: number;
   lastMcrMeta: MCRMetadata | null;
   lastEnergy: EnergyData | null;
-  // True when pi-vcc handled the most recent compaction for this MCR
-  // session. When set, the context hook skips its own drop because
-  // pi-vcc has already bounded the context and the server-side
-  // safe_drop_before indices are stale relative to pi-vcc's restructure.
-  piVccOverriding: boolean;
   // In-flight request UX. When an MCR request is sent we record the wall-clock
   // send time so the chip can surface a neutral "working…" indicator on long
   // waits, and cleared on the first ``message_update`` / ``message_end``.
@@ -90,7 +85,6 @@ const state: SessionState = {
   contextTokens: 0,
   lastMcrMeta: null,
   lastEnergy: null,
-  piVccOverriding: false,
   inFlightSince: null,
   inFlightTickerHandle: null,
 };
@@ -573,13 +567,6 @@ export default function (pi: ExtensionAPI) {
       state.safeDropBefore = mcrFromHeaders.safe_drop_before;
       state.storedThrough = mcrFromHeaders.stored_through;
       state.lastMcrMeta = mcrFromHeaders;
-      // The server has recalibrated safe_drop_before for the current
-      // message sequence. pi-vcc's override is no longer needed —
-      // the stale-index problem the flag guards against is resolved
-      // because these headers reflect the post-pi-vcc payload.
-      if (state.piVccOverriding) {
-        state.piVccOverriding = false;
-      }
     }
 
     updateStatusBar(ctx);
@@ -615,9 +602,6 @@ export default function (pi: ExtensionAPI) {
       state.safeDropBefore = mcrFromBody.safe_drop_before;
       state.storedThrough = mcrFromBody.stored_through;
       state.lastMcrMeta = mcrFromBody;
-      if (state.piVccOverriding) {
-        state.piVccOverriding = false;
-      }
     }
 
     const energy = extractEnergyFromBody(msg);
@@ -671,20 +655,6 @@ export default function (pi: ExtensionAPI) {
         reason: "not_mcr_model",
         model: modelId,
         num_msgs: numMsgs,
-      });
-      return;
-    }
-    // pi-vcc already bounded the context with its own compaction. The
-    // server's safe_drop_before indices are relative to the pre-compaction
-    // message list and would drop the wrong messages. pi-vcc's summary
-    // replaces the dropped range so the server context is still maintained.
-    if (state.piVccOverriding) {
-      nwlog("context_skip", {
-        reason: "pi_vcc_overriding",
-        model: modelId,
-        num_msgs: numMsgs,
-        safe_drop_before: state.safeDropBefore,
-        session_fp: state.sessionFp,
       });
       return;
     }
@@ -832,19 +802,9 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  pi.on("session_before_compact", async (event, ctx) => {
+  pi.on("session_before_compact", async (_event, ctx) => {
     if (!isMCRModel(ctx.model?.id || "")) return;
     if (state.sessionFp) {
-      // pi-vcc signals it is handling compaction by setting
-      // event._piVccOverriding = true before returning its result.
-      // In that case, let it through — pi-vcc compacts instead of
-      // the server, and the context hook skips its own drop.
-      const piVccActive = (event as any)?._piVccOverriding === true;
-      if (piVccActive) {
-        state.piVccOverriding = true;
-        nwlog("compaction_pi_vcc", { session_fp: state.sessionFp });
-        return; // don't cancel — pi-vcc takes over
-      }
       nwlog("compaction_cancelled", { session_fp: state.sessionFp });
       return { cancel: true };
     }
@@ -867,9 +827,6 @@ export default function (pi: ExtensionAPI) {
         stored_through: state.storedThrough,
         safe_drop_before: state.safeDropBefore,
       };
-      if (state.piVccOverriding) {
-        state.piVccOverriding = false;
-      }
     }
 
     if (energyRaw && typeof energyRaw.energy_joules === "number") {
@@ -905,7 +862,6 @@ export default function (pi: ExtensionAPI) {
     state.contextTokens = 0;
     state.lastMcrMeta = null;
     state.lastEnergy = null;
-    state.piVccOverriding = false;
     // Clear any in-flight indicator left over from a prior
     // session (defensive — session_start would normally fire after any
     // active request has completed, but a forced restart or fork can land
@@ -937,7 +893,6 @@ export default function (pi: ExtensionAPI) {
     state.contextTokens = 0;
     state.lastMcrMeta = null;
     state.lastEnergy = null;
-    state.piVccOverriding = false;
 
     // Replay energy events from the session log for the new branch.
     for (const entry of ctx.sessionManager.getBranch()) {
