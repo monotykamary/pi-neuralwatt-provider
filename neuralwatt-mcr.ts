@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { consumePendingMCR } from "./index";
 
 // Bump on any user-facing behaviour change. Surfaced in the extension log so a
-// session's behaviour can be tied to a specific revision when triaging reports.
+// session's behaviour is tied to a specific revision when triaging reports.
 //   2.0.0 — honest in-flight chip (tools#33 / inference_frontend#3954):
 //           neutral "working…" label, silent grace window, tightened MCR gating.
 //   2.1.0 — send the extension version on the wire as X-NW-MCR-Ext-Version so
@@ -16,7 +16,14 @@ import { consumePendingMCR } from "./index";
 //           no longer flood the log with `no_session_fp` skips (tools#38).
 //           Verified the X-NW-Conversation-ID header is re-read live per
 //           request by the SDK (registerProvider headers mechanism).
-const EXTENSION_VERSION = "2.1.1";
+//   2.2.0 — synced with upstream @neuralwatt/pi-mcr-extension 2.2.0 (Chad's
+//           version comment block, ref-recovery headers, outbound payload
+//           shape logging, session_tree energy replay). Adapted for our
+//           pi-neuralwatt-provider: partial registerProvider (no inline
+//           models — index.ts owns the provider registration with
+//           streamSimple), $-prefixed env vars, turn_end SSE bridge
+//           consumer from index.ts.
+const EXTENSION_VERSION = "2.2.0";
 
 const MCR_ANCHOR_USER_MESSAGES = 3;
 
@@ -372,11 +379,10 @@ export default function (pi: ExtensionAPI) {
   // never touch it again — no upgrade-on-hook logic needed.
   const EXT_VERSION_ENV = "X_NW_MCR_EXT_VERSION";
   process.env[EXT_VERSION_ENV] = EXTENSION_VERSION;
-  // `apiKey` mirrors the env-var name from ~/.pi/agent/models.json so the
-  // partial config doesn't shadow the existing auth. `storeProviderRequestConfig`
-  // doesn't merge with the models.json-derived entry (different map), so we
-  // have to re-state any field we need; only apiKey here, since baseUrl/api
-  // flow through via the override-only branch of applyProviderConfig.
+  // Partial provider registration: apiKey + custom headers only. index.ts
+  // owns the full registration (baseUrl, api, models, streamSimple) — this
+  // file does NOT re-declare models/api because doing so would replace
+  // the provider and lose streamSimple (our SSE tee for energy/quota).
   //
   // Env-var references use the explicit `$NAME` form. Pi deprecated the
   // bare-name auto-detection ("NEURALWATT_API_KEY") — it now warns and will
@@ -709,7 +715,6 @@ export default function (pi: ExtensionAPI) {
     if (!isMCRModel(modelId)) {
       return;
     }
-
     if (!state.sessionFp) {
       nwlog("context_skip", {
         reason: "no_session_fp",
