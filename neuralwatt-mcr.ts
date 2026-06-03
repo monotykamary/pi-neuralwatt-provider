@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { consumePendingMCR } from "./index";
+import { consumePendingMCR, streamNeuralwatt, getStaleModels } from "./index";
 import chadFactory from "./chad-mcr-upstream";
 
 // Thin wrapper that delegates to Chad's upstream @neuralwatt/pi-mcr-extension
@@ -80,6 +80,26 @@ export default function (pi: ExtensionAPI) {
   if (!chadAlreadyLoaded) {
     chadFactory(proxy);
   }
+
+  // ── Re-register our provider after all load-time writes ──────────────────
+  //
+  // If Chad's npm package is installed directly, its registerProvider with
+  // api: "openai-completions" + models already replaced ours. The proxy
+  // prevents this when Chad loads through our wrapper, but can't intercept
+  // a direct load. Re-registering here (after all extensions have loaded)
+  // guarantees our streamSimple + SWR models are the final provider entry.
+  // Idempotent when Chad isn't installed.
+  pi.registerProvider("neuralwatt", {
+    baseUrl: "https://api.neuralwatt.com/v1",
+    apiKey: "$NEURALWATT_API_KEY",
+    api: "neuralwatt",
+    models: getStaleModels(),
+    streamSimple: streamNeuralwatt,
+    headers: {
+      "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID",
+      "X-NW-MCR-Ext-Version": "$X_NW_MCR_EXT_VERSION",
+    },
+  });
 
   // ── Bridge state (reset on session_start to stay aligned with Chad) ────
   const MCR_STATUS_KEY = "nw-mcr";

@@ -1008,7 +1008,7 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
 
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
 
-function streamNeuralwatt(
+export function streamNeuralwatt(
   model: any,
   context: any,
   options?: SimpleStreamOptions,
@@ -1063,20 +1063,30 @@ function streamNeuralwatt(
 
 // ─── Extension Entry Point ────────────────────────────────────────────────────
 
+// Build the stale model list at module scope so neuralwatt-mcr.ts can import it
+// for re-registration. This is idempotent — the same data index.ts uses.
+let _staleModelsCache: NeuralwattModel[] | null = null;
+export function getStaleModels(): NeuralwattModel[] {
+  if (!_staleModelsCache) {
+    const embedded = modelsData as NeuralwattModel[];
+    const custom = customModelsData as NeuralwattModel[];
+    const patches = patchesData as Record<string, any>;
+    const staleBase = loadStaleModels(embedded);
+    _staleModelsCache = buildModels(staleBase, custom, patches);
+  }
+  return _staleModelsCache;
+}
+
 export default function (pi: ExtensionAPI) {
   const embeddedModels = modelsData as NeuralwattModel[];
   const customModels = customModelsData as NeuralwattModel[];
   const patches = patchesData as Record<string, any>;
 
-  // SWR: Serve stale immediately (cache → embedded)
-  const staleBase = loadStaleModels(embeddedModels);
-  const staleModels = buildModels(staleBase, customModels, patches);
-
   pi.registerProvider("neuralwatt", {
     baseUrl: BASE_URL,
     apiKey: "$NEURALWATT_API_KEY",
     api: "neuralwatt",
-    models: staleModels,
+    models: getStaleModels(),
     streamSimple: streamNeuralwatt,
   });
 
@@ -1099,7 +1109,7 @@ export default function (pi: ExtensionAPI) {
       baseUrl: BASE_URL,
       apiKey: "$NEURALWATT_API_KEY",
       api: "neuralwatt",
-      models: staleModels,
+      models: getStaleModels(),
       streamSimple: streamNeuralwatt,
     });
     updateEnergyStatus(ctx);
