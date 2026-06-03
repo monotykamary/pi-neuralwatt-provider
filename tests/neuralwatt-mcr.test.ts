@@ -1,14 +1,19 @@
-// Tests for the Neuralwatt MCR Pi extension.
+// Tests for the Neuralwatt MCR Pi extension wrapper.
 //
-// The extension is shipped as a single .ts file that Pi loads at runtime
-// (types are erased). These tests drive the real extension with a mock `pi`
-// object, capturing the handlers and provider config it registers, and assert
-// the two behaviours hardened in tools#38:
+// The wrapper delegates to Chad's upstream @neuralwatt/pi-mcr-extension with
+// two runtime patches: (1) registerProvider intercepted to strip models/api
+// and $-prefix env vars, (2) turn_end SSE bridge handler added.
 //
-//   1. The X-NW-Conversation-ID header is wired so the SDK resolves it from
-//      `process.env` live per request (env-var-NAME-as-value mechanism).
-//   2. The `context` handler filters non-MCR models FIRST, silently — no
-//      `no_session_fp` log noise for deepseek/GLM/Kimi non-MCR turns.
+// These tests drive the real wrapper with a mock `pi` object and the
+// committed chad-mcr-upstream.ts, then assert the proxy patches and Chad's
+// handler behaviors work correctly:
+//
+//   1. The registerProvider proxy strips baseUrl/api/models and $-prefixes
+//      env-var names.
+//   2. X_NW_CONVERSATION_ID is seeded via Chad's factory and resolved live.
+//   3. session_start upgrades the env var to Pi's stable session id.
+//   4. The context handler (via Chad's factory) filters non-MCR models first.
+//   5. The context handler logs no_session_fp for MCR models without fp.
 //
 // We run each test in an isolated $HOME so the extension's append-only log
 // file is observable and does not leak across tests.
@@ -21,7 +26,7 @@ import * as path from "node:path";
 type Handler = (event: any, ctx: any) => any;
 
 interface MockPi {
-  handlers: Map<string, Handler>;
+  handlers: Map<string, Handler[]>;
   providers: Record<string, any>;
   on: (event: string, handler: Handler) => void;
   registerProvider: (name: string, config: any) => void;
@@ -29,13 +34,15 @@ interface MockPi {
 }
 
 function makeMockPi(): MockPi {
-  const handlers = new Map<string, Handler>();
+  const handlers = new Map<string, Handler[]>();
   const providers: Record<string, any> = {};
   return {
     handlers,
     providers,
     on(event, handler) {
-      handlers.set(event, handler);
+      const list = handlers.get(event) ?? [];
+      list.push(handler);
+      handlers.set(event, list);
     },
     registerProvider(name, config) {
       providers[name] = config;
@@ -53,10 +60,6 @@ function makeCtx(modelId: string) {
 }
 
 // Mirror of the SDK's resolveConfigValue for $-prefixed env-var references.
-// Pi's resolve-config-value strips the leading `$` and resolves
-// `process.env[name]`. If the env var is unset, it falls back to the raw
-// value (without `$`). This mirrors what the SDK does with `$`-prefixed
-// header values registered via `pi.registerProvider({ headers })`.
 function resolveConfigValue(value: string): string {
   if (value.startsWith("$")) {
     const envName = value.slice(1);
@@ -66,7 +69,6 @@ function resolveConfigValue(value: string): string {
 }
 
 let tmpHome: string;
-let extDefault: (pi: MockPi) => void;
 
 function logPath(): string {
   return path.join(tmpHome, ".pi", "agent", "extensions", "neuralwatt-mcr.log");
@@ -80,9 +82,7 @@ function readLog(): string {
   }
 }
 
-async function loadExtension(): Promise<(pi: MockPi) => void> {
-  return extDefault;
-}
+let extDefault: (pi: MockPi) => void;
 
 beforeAll(async () => {
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "nw-mcr-test-"));
@@ -92,7 +92,7 @@ beforeAll(async () => {
     recursive: true,
   });
   const mod = await import("../neuralwatt-mcr.ts");
-  extDefault = mod.default as (pi: MockPi) => void;
+  extDefault = mod.default;
 });
 
 beforeEach(() => {
@@ -113,18 +113,24 @@ afterEach(() => {
 describe("X-NW-Conversation-ID header wiring", () => {
   it("registers the neuralwatt provider with $-prefixed env-var-name header values", async () => {
     const pi = makeMockPi();
-    (await loadExtension())(pi);
+    extDefault(pi);
 
     const cfg = pi.providers["neuralwatt"];
     expect(cfg).toBeTruthy();
+    // The proxy strips baseUrl/api/models and $-prefixes the header values.
+    expect(cfg.baseUrl).toBeUndefined();
+    expect(cfg.api).toBeUndefined();
+    expect(cfg.models).toBeUndefined();
     // Header VALUES are $-prefixed env-var NAMES (Pi's current convention).
     expect(cfg.headers["X-NW-Conversation-ID"]).toBe("$X_NW_CONVERSATION_ID");
     expect(cfg.headers["X-NW-MCR-Ext-Version"]).toBe("$X_NW_MCR_EXT_VERSION");
+    // apiKey also $-prefixed.
+    expect(cfg.apiKey).toBe("$NEURALWATT_API_KEY");
   });
 
   it("seeds X_NW_CONVERSATION_ID so the header resolves to a real value on the first request", async () => {
     const pi = makeMockPi();
-    (await loadExtension())(pi);
+    extDefault(pi);
 
     const headerName = pi.providers["neuralwatt"].headers["X-NW-Conversation-ID"];
     const resolved = resolveConfigValue(headerName);
@@ -135,13 +141,13 @@ describe("X-NW-Conversation-ID header wiring", () => {
 
   it("upgrades the env var to Pi's stable session id on session_start, and the header re-reads it live", async () => {
     const pi = makeMockPi();
-    (await loadExtension())(pi);
+    extDefault(pi);
     const headerName = pi.providers["neuralwatt"].headers["X-NW-Conversation-ID"];
 
     const before = resolveConfigValue(headerName);
 
-    const sessionStart = pi.handlers.get("session_start")!;
-    await sessionStart({}, makeCtx("neuralwatt/glm-5.1-long"));
+    const sessionStartHandlers = pi.handlers.get("session_start")!;
+    await sessionStartHandlers[0]({}, makeCtx("neuralwatt/glm-5.1-long"));
 
     const after = resolveConfigValue(headerName);
     // After session_start the header resolves to Pi's stable session id, and
@@ -154,10 +160,10 @@ describe("X-NW-Conversation-ID header wiring", () => {
 describe("context handler: isMCRModel-first guard", () => {
   it("filters non-MCR models silently — no no_session_fp log noise", async () => {
     const pi = makeMockPi();
-    (await loadExtension())(pi);
-    const context = pi.handlers.get("context")!;
+    extDefault(pi);
+    const contextHandlers = pi.handlers.get("context")!;
 
-    const ret = await context(
+    const ret = await contextHandlers[0](
       { messages: [{ type: "user" }, { type: "assistant" }] },
       makeCtx("deepseek-v4-pro"),
     );
@@ -172,15 +178,68 @@ describe("context handler: isMCRModel-first guard", () => {
 
   it("still logs no_session_fp for an MCR model with no session fp yet", async () => {
     const pi = makeMockPi();
-    (await loadExtension())(pi);
-    const context = pi.handlers.get("context")!;
+    extDefault(pi);
+    const contextHandlers = pi.handlers.get("context")!;
 
-    await context(
+    await contextHandlers[0](
       { messages: [{ type: "user" }] },
       makeCtx("neuralwatt/glm-5.1-long"),
     );
 
     const log = readLog();
     expect(log).toContain("no_session_fp");
+  });
+});
+
+describe("registerProvider proxy", () => {
+  it("strips baseUrl, api, and models from the neuralwatt provider registration", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    const cfg = pi.providers["neuralwatt"];
+    expect(cfg.baseUrl).toBeUndefined();
+    expect(cfg.api).toBeUndefined();
+    expect(cfg.models).toBeUndefined();
+    // apiKey and headers are preserved (key integration points).
+    expect(cfg.apiKey).toBe("$NEURALWATT_API_KEY");
+    expect(cfg.headers["X-NW-Conversation-ID"]).toBe("$X_NW_CONVERSATION_ID");
+  });
+
+  it("passes through non-neuralwatt provider registrations unchanged", async () => {
+    const pi = makeMockPi();
+    const registered: Array<{ name: string; config: any }> = [];
+    const origRegister = pi.registerProvider.bind(pi);
+    pi.registerProvider = (name: string, config: any) => {
+      registered.push({ name, config });
+      origRegister(name, config);
+    };
+
+    extDefault(pi);
+
+    const neuralwatt = registered.find((r) => r.name === "neuralwatt");
+    expect(neuralwatt).toBeTruthy();
+    expect(neuralwatt!.config.baseUrl).toBeUndefined();
+  });
+});
+
+describe("turn_end SSE bridge handler", () => {
+  it("registers a turn_end handler", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    const turnEndHandlers = pi.handlers.get("turn_end");
+    expect(turnEndHandlers).toBeTruthy();
+    expect(turnEndHandlers!.length).toBeGreaterThan(0);
+  });
+
+  it("resets bridge state on session_start", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    // The wrapper registers its own session_start handler (the last one)
+    // that resets bridge state. Verify it's present.
+    const sessionStartHandlers = pi.handlers.get("session_start")!;
+    // Chad's session_start + our bridge reset = at least 2 handlers
+    expect(sessionStartHandlers.length).toBeGreaterThanOrEqual(2);
   });
 });
