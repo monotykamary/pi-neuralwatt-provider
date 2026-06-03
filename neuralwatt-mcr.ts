@@ -28,7 +28,7 @@ import chadFactory from "./chad-mcr-upstream";
 const MCR_LOADED_SENTINEL = Symbol.for("pi-neuralwatt-provider.mcr-loaded");
 
 function isMCRModel(modelId: string): boolean {
-  return modelId.includes("neuralwatt/") || modelId.endsWith("-long");
+  return modelId.includes("neuralwatt/") || modelId.endsWith("-long") || modelId.endsWith("-mcr");
 }
 
 export default function (pi: ExtensionAPI) {

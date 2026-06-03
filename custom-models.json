@@ -225,6 +225,26 @@
     }
   },
   {
+    "id": "nemotron-3-nano-mcr",
+    "name": "Nemotron 3 Nano (MCR 1M)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.05,
+      "output": 0.2,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048576,
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "thinkingFormat": "qwen-chat-template"
+    }
+  },
+  {
     "id": "neuralwatt/claude-opus-cached",
     "name": "Claude Opus (Cached)",
     "reasoning": true,
