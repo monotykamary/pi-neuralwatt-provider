@@ -1,6 +1,17 @@
-# pi-neuralwatt-provider
+<div align="center">
 
-A [pi](https://github.com/badlogic/pi-mono) extension that adds [Neuralwatt](https://neuralwatt.com) as a custom model provider.
+# ⚡ pi-neuralwatt-provider
+
+**Models + energy tracking via [Neuralwatt](https://neuralwatt.com)**
+
+_Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [pi](https://github.com/earendil-works/pi-coding-agent)._
+
+[![pi extension](https://img.shields.io/badge/pi-extension-blueviolet)](https://github.com/earendil-works/pi-coding-agent)
+[![license](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
+
+</div>
+
+---
 
 ![Energy Reporting Status Widget](assets/screenshot.jpg)
 
