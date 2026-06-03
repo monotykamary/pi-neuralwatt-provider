@@ -1089,6 +1089,19 @@ export default function (pi: ExtensionAPI) {
     resetSessionState();
     cachedQuota = null;
     replayEnergyEvents(ctx);
+    // Always re-register our provider on session_start to guarantee
+    // streamSimple wins over any load-time registerProvider from Chad's
+    // npm package (if installed alongside ours). registerProvider replaces
+    // the entire provider entry, so Chad's api: "openai-completions" + models
+    // would kill our SSE tee. Re-registering here is idempotent when Chad
+    // isn't installed.
+    pi.registerProvider("neuralwatt", {
+      baseUrl: BASE_URL,
+      apiKey: "$NEURALWATT_API_KEY",
+      api: "neuralwatt",
+      models: staleModels,
+      streamSimple: streamNeuralwatt,
+    });
     updateEnergyStatus(ctx);
     resolveApiKey(ctx.modelRegistry).then(() => {
       // Pre-fetch quota eagerly so it's cached and ready to display as

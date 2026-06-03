@@ -95,9 +95,13 @@ beforeAll(async () => {
   extDefault = mod.default;
 });
 
+const MCR_LOADED_SENTINEL = Symbol.for("pi-neuralwatt-provider.mcr-loaded");
+
 beforeEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
+  // Clear the sentinel so each test gets a fresh wrapper invocation
+  delete (globalThis as any)[MCR_LOADED_SENTINEL];
   try {
     fs.rmSync(logPath());
   } catch {
@@ -108,6 +112,7 @@ beforeEach(() => {
 afterEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
+  delete (globalThis as any)[MCR_LOADED_SENTINEL];
 });
 
 describe("X-NW-Conversation-ID header wiring", () => {
@@ -241,5 +246,23 @@ describe("turn_end SSE bridge handler", () => {
     const sessionStartHandlers = pi.handlers.get("session_start")!;
     // Chad's session_start + our bridge reset = at least 2 handlers
     expect(sessionStartHandlers.length).toBeGreaterThanOrEqual(2);
+  });
+});
+
+describe("double-load sentinel", () => {
+  it("skips Chad's factory when sentinel is already set (Chad loaded directly)", async () => {
+    // Simulate Chad's extension loaded directly by Pi
+    (globalThis as any)[MCR_LOADED_SENTINEL] = true;
+
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    // No registerProvider from Chad's factory (it was skipped)
+    expect(pi.providers["neuralwatt"]).toBeUndefined();
+    // No context/compaction handlers from Chad's factory
+    expect(pi.handlers.get("context")).toBeUndefined();
+    expect(pi.handlers.get("session_before_compact")).toBeUndefined();
+    // But our turn_end bridge handler is still registered
+    expect(pi.handlers.get("turn_end")).toBeTruthy();
   });
 });

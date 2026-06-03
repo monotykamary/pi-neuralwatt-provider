@@ -19,11 +19,20 @@ import chadFactory from "./chad-mcr-upstream";
 // No npm package coupling needed — Chad's file is a local static import,
 // resolved by Pi's jiti just like any multi-file extension.
 
+// Sentinel on globalThis to detect when Chad's MCR extension has already been
+// loaded directly by Pi (e.g. someone ran `pi install npm:@neuralwatt/pi-mcr-extension`
+// alongside our package). If the sentinel is set, Chad's handlers already registered
+// and his registerProvider already fired — our wrapper skips the duplicate factory
+// invocation but still registers the turn_end bridge handler.
+const MCR_LOADED_SENTINEL = Symbol.for("pi-neuralwatt-provider.mcr-loaded");
+
 function isMCRModel(modelId: string): boolean {
   return modelId.includes("neuralwatt/") || modelId.endsWith("-long");
 }
 
 export default function (pi: ExtensionAPI) {
+  const chadAlreadyLoaded = !!(globalThis as any)[MCR_LOADED_SENTINEL];
+  (globalThis as any)[MCR_LOADED_SENTINEL] = true;
   // ── Proxy pi: intercept registerProvider ────────────────────────────────
   //
   // Chad's registerProvider("neuralwatt", { baseUrl, api, models, apiKey,
@@ -59,8 +68,18 @@ export default function (pi: ExtensionAPI) {
     }
   };
 
-  // ── Invoke Chad's factory with the proxy ─────────────────────────────────
-  chadFactory(proxy);
+  // ── Invoke Chad's factory with the proxy (skip if already loaded) ──────
+  //
+  // If Chad's extension was loaded directly by Pi (npm package installed
+  // alongside ours), his handlers and registerProvider already fired. Invoking
+  // his factory again would duplicate every handler and context-drop would
+  // operate on already-dropped indices.
+  //
+  // When we skip, Chad's full registerProvider stands — but index.ts re-registers
+  // our provider on session_start to ensure streamSimple wins.
+  if (!chadAlreadyLoaded) {
+    chadFactory(proxy);
+  }
 
   // ── Bridge state (reset on session_start to stay aligned with Chad) ────
   const MCR_STATUS_KEY = "nw-mcr";
