@@ -214,7 +214,7 @@ function buildModels(
 // ─── Stale-While-Revalidate Model Sync ────────────────────────────────────────
 
 const PROVIDER_ID = "neuralwatt";
-const BASE_URL = "https://api.neuralwatt.com/v1";
+export const BASE_URL = "https://api.neuralwatt.com/v1";
 const MODELS_URL = `${BASE_URL}/models`;
 const CACHE_DIR = path.join(os.homedir(), ".pi", "agent", "cache");
 const CACHE_PATH = path.join(CACHE_DIR, `${PROVIDER_ID}-models.json`);
@@ -1077,18 +1077,28 @@ export function getStaleModels(): NeuralwattModel[] {
   return _staleModelsCache;
 }
 
+// Build the standard provider config object. Used by index.ts and neuralwatt-mcr.ts
+// to ensure the same provider identity (api, streamSimple, headers) everywhere.
+export function makeProviderConfig(models: NeuralwattModel[] = getStaleModels()) {
+  return {
+    baseUrl: BASE_URL,
+    apiKey: "$NEURALWATT_API_KEY",
+    api: "neuralwatt" as const,
+    models,
+    streamSimple: streamNeuralwatt,
+    headers: {
+      "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID",
+      "X-NW-MCR-Ext-Version": "$X_NW_MCR_EXT_VERSION",
+    },
+  };
+}
+
 export default function (pi: ExtensionAPI) {
   const embeddedModels = modelsData as NeuralwattModel[];
   const customModels = customModelsData as NeuralwattModel[];
   const patches = patchesData as Record<string, any>;
 
-  pi.registerProvider("neuralwatt", {
-    baseUrl: BASE_URL,
-    apiKey: "$NEURALWATT_API_KEY",
-    api: "neuralwatt",
-    models: getStaleModels(),
-    streamSimple: streamNeuralwatt,
-  });
+  pi.registerProvider("neuralwatt", makeProviderConfig());
 
   // Revalidate in background on session_start
   pi.on("session_start", async (_event, ctx) => {
@@ -1099,19 +1109,11 @@ export default function (pi: ExtensionAPI) {
     resetSessionState();
     cachedQuota = null;
     replayEnergyEvents(ctx);
-    // Always re-register our provider on session_start to guarantee
-    // streamSimple wins over any load-time registerProvider from Chad's
-    // npm package (if installed alongside ours). registerProvider replaces
-    // the entire provider entry, so Chad's api: "openai-completions" + models
-    // would kill our SSE tee. Re-registering here is idempotent when Chad
-    // isn't installed.
-    pi.registerProvider("neuralwatt", {
-      baseUrl: BASE_URL,
-      apiKey: "$NEURALWATT_API_KEY",
-      api: "neuralwatt",
-      models: getStaleModels(),
-      streamSimple: streamNeuralwatt,
-    });
+    // Re-register on session_start to guarantee our provider identity
+    // (api, streamSimple, headers) wins over any load-time registration
+    // from Chad's npm package (if installed alongside ours).
+    // registerProvider replaces the entire entry, so this is idempotent.
+    pi.registerProvider("neuralwatt", makeProviderConfig());
     updateEnergyStatus(ctx);
     resolveApiKey(ctx.modelRegistry).then(() => {
       // Pre-fetch quota eagerly so it's cached and ready to display as
@@ -1127,13 +1129,7 @@ export default function (pi: ExtensionAPI) {
       }
       revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
         if (freshBase && !signal.aborted) {
-          pi.registerProvider("neuralwatt", {
-            baseUrl: BASE_URL,
-            apiKey: "$NEURALWATT_API_KEY",
-            api: "neuralwatt",
-            models: buildModels(freshBase, customModels, patches),
-            streamSimple: streamNeuralwatt,
-          });
+          pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(freshBase, customModels, patches)));
         }
       });
     });

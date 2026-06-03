@@ -1,13 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { consumePendingMCR, streamNeuralwatt, getStaleModels } from "./index";
+import { consumePendingMCR, makeProviderConfig } from "./index";
 import chadFactory from "./chad-mcr-upstream";
 
 // Thin wrapper that delegates to Chad's upstream @neuralwatt/pi-mcr-extension
-// with two runtime patches applied via a proxy pi object:
+// with two runtime patches:
 //
-//   1. registerProvider("neuralwatt", ...) → stripped of baseUrl/api/models,
-//      env-var values $-prefixed (Pi deprecated bare-name resolution).
-//      index.ts owns the full provider registration with streamSimple.
+//   1. Proxy pi: registerProvider("neuralwatt", ...) stripped of
+//      baseUrl/api/models, env-var values $-prefixed. Then we re-register
+//      our full provider (streamSimple + SWR models + headers) to guarantee
+//      it wins regardless of whether Chad's npm package is also installed.
 //
 //   2. turn_end handler: SSE bridge (consumePendingMCR) feeds energy/MCR
 //      data from index.ts's HTTP tee. Chad reads from after_provider_response
@@ -75,8 +76,8 @@ export default function (pi: ExtensionAPI) {
   // his factory again would duplicate every handler and context-drop would
   // operate on already-dropped indices.
   //
-  // When we skip, Chad's full registerProvider stands — but index.ts re-registers
-  // our provider on session_start to ensure streamSimple wins.
+  // When we skip, Chad's full registerProvider stands — but we re-register
+  // our provider below to ensure streamSimple wins.
   if (!chadAlreadyLoaded) {
     chadFactory(proxy);
   }
@@ -89,17 +90,7 @@ export default function (pi: ExtensionAPI) {
   // a direct load. Re-registering here (after all extensions have loaded)
   // guarantees our streamSimple + SWR models are the final provider entry.
   // Idempotent when Chad isn't installed.
-  pi.registerProvider("neuralwatt", {
-    baseUrl: "https://api.neuralwatt.com/v1",
-    apiKey: "$NEURALWATT_API_KEY",
-    api: "neuralwatt",
-    models: getStaleModels(),
-    streamSimple: streamNeuralwatt,
-    headers: {
-      "X-NW-Conversation-ID": "$X_NW_CONVERSATION_ID",
-      "X-NW-MCR-Ext-Version": "$X_NW_MCR_EXT_VERSION",
-    },
-  });
+  pi.registerProvider("neuralwatt", makeProviderConfig());
 
   // ── Bridge state (reset on session_start to stay aligned with Chad) ────
   const MCR_STATUS_KEY = "nw-mcr";
