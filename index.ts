@@ -1161,6 +1161,40 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
 
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
 
+/** Surface the OpenAI-spec error `code` inside the error `message`.
+ *
+ * Neuralwatt's serving layer emits several context-overflow wordings (e.g.
+ * "This model's maximum context length is N tokens" vs "Your conversation is
+ * too long for this model's context window even after compaction"), and only
+ * some of them match pi-ai's OVERFLOW_PATTERNS. Downstream consumers like
+ * Pi's overflow recovery only see the message string — the `code` field
+ * ("context_length_exceeded", which pi-ai's generic fallback pattern does
+ * match) is dropped by the openai SDK error path. Appending the code to the
+ * message makes the error classifiable regardless of wording, so Pi can
+ * compact-and-retry instead of stopping the turn.
+ *
+ * Returns the body unchanged when it isn't JSON, has no error code, or the
+ * message already contains the code.
+ */
+export function appendErrorCodeToMessage(bodyText: string): string {
+  try {
+    const body = JSON.parse(bodyText);
+    const code = body?.error?.code;
+    const message = body?.error?.message;
+    if (
+      typeof code === "string" && code.length > 0 &&
+      typeof message === "string" &&
+      !message.includes(code)
+    ) {
+      body.error.message = `${message} (${code})`;
+      return JSON.stringify(body);
+    }
+  } catch {
+    // Not JSON — leave it alone.
+  }
+  return bodyText;
+}
+
 export function streamNeuralwatt(
   model: any,
   context: any,
@@ -1194,6 +1228,15 @@ export function streamNeuralwatt(
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await originalFetch(input, init);
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (!response.ok && url.includes("/chat/completions")) {
+      // Error responses are small JSON bodies, never SSE — safe to buffer.
+      // Surface the error code in the message so Pi's overflow detection
+      // (which only sees the message string) can classify it.
+      const text = await response.text();
+      const headers = new Headers(response.headers);
+      headers.delete("content-length");
+      return new Response(appendErrorCodeToMessage(text), { headers, status: response.status, statusText: response.statusText });
+    }
     if (response.body && url.includes("/chat/completions")) {
       const [bodyForSdk, bodyForEnergy] = response.body.tee();
       teeReader = readEnergyFromTee(bodyForEnergy);
