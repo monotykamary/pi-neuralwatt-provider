@@ -71,6 +71,7 @@ type DisplayMode = "widget" | "statusbar" | "off";
 interface NeuralwattConfig {
   energy: DisplayMode;
   quota: DisplayMode;
+  mcr: DisplayMode;
 }
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "extensions", "neuralwatt.json");
@@ -82,7 +83,7 @@ function parseDisplayMode(value: unknown, fallback: DisplayMode): DisplayMode {
   return fallback;
 }
 
-const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget" };
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget" };
 
 function loadConfig(): NeuralwattConfig {
   try {
@@ -90,6 +91,7 @@ function loadConfig(): NeuralwattConfig {
     return {
       energy: parseDisplayMode(raw.energy, "widget"),
       quota: parseDisplayMode(raw.quota, "widget"),
+      mcr: parseDisplayMode(raw.mcr, "widget"),
     };
   } catch {
     // Config file missing or invalid — populate with defaults so the user can discover it
@@ -373,14 +375,24 @@ interface EnergyEvent {
   sse_energy_raw?: Record<string, unknown>;
   sse_mcr_session_raw?: Record<string, unknown>;
   sse_cost_raw?: Record<string, unknown>;
+  // MCR state (latest-wins on replay, not cumulative)
+  mcr_fp?: string;
+  mcr_safe_drop_before?: number;
+  mcr_apc_hit_rate?: number;
+  mcr_compact_ratio?: number;
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
 const STATUS_KEY_ENERGY = "neuralwatt-energy";
 const STATUS_KEY_QUOTA = "neuralwatt-quota";
+const STATUS_KEY_MCR = "neuralwatt-mcr";
 
 let sessionEnergyJoules = 0;
 let sessionCostUsd = 0;
+let sessionMcrFp: string | null = null;
+let sessionSafeDropBefore = 0;
+let sessionApcHitRate: number | undefined;
+let sessionCompactRatio: number | undefined;
 let pendingEnergyJoules = 0;
 let pendingCostUsd = 0;
 let pendingEnergyRaw: Record<string, unknown> | null = null;
@@ -440,6 +452,10 @@ export function getPendingState() {
 export function resetSessionState() {
   sessionEnergyJoules = 0;
   sessionCostUsd = 0;
+  sessionMcrFp = null;
+  sessionSafeDropBefore = 0;
+  sessionApcHitRate = undefined;
+  sessionCompactRatio = undefined;
   pendingEnergyJoules = 0;
   pendingCostUsd = 0;
   pendingEnergyRaw = null;
@@ -457,10 +473,19 @@ export function resetSessionState() {
 function replayEnergyEvents(ctx: any): void {
   sessionEnergyJoules = 0;
   sessionCostUsd = 0;
+  sessionMcrFp = null;
+  sessionSafeDropBefore = 0;
+  sessionApcHitRate = undefined;
+  sessionCompactRatio = undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
     if (entry.type === "custom" && entry.customType === ENERGY_ENTRY_TYPE && entry.data) {
       sessionEnergyJoules += entry.data.energy_joules || 0;
       sessionCostUsd += entry.data.cost_usd || 0;
+      // MCR state is latest-wins (not cumulative)
+      if (entry.data.mcr_fp) sessionMcrFp = entry.data.mcr_fp;
+      if (typeof entry.data.mcr_safe_drop_before === "number") sessionSafeDropBefore = entry.data.mcr_safe_drop_before;
+      if (typeof entry.data.mcr_apc_hit_rate === "number") sessionApcHitRate = entry.data.mcr_apc_hit_rate;
+      if (typeof entry.data.mcr_compact_ratio === "number") sessionCompactRatio = entry.data.mcr_compact_ratio;
     }
   }
 }
@@ -472,18 +497,75 @@ function replayEnergyEvents(ctx: any): void {
 //   ⚡0.77 mWh $0.003829   full: value (spaced unit) + cost
 //   ⚡0.77mWh $0.003829    compressed: value (merged unit) + cost
 //   ⚡0.77mWh              compressed value only (cost dropped)
+// Progressive-disclosure energy + MCR text. Returns the highest-fidelity
+// string that fits within maxCols visible columns, or undefined if nothing
+// meaningful fits.
+//
+// MCR parts are appended after energy and are progressively dropped (compact
+// → APC → drop → fp) before energy itself compresses. This keeps energy
+// visible even when MCR detail doesn't fit.
+//
+// Levels (most → least detail):
+//   ⚡0.77 mWh $0.003829 MCR 3bb342a0 drop<5 APC 85% compact 45%   full + MCR
+//   ⚡0.77 mWh $0.003829 MCR 3bb342a0 drop<5 APC 85%               drop compact
+//   ⚡0.77 mWh $0.003829 MCR 3bb342a0 drop<5                     drop APC
+//   ⚡0.77 mWh $0.003829 MCR 3bb342a0                              drop safe_drop
+//   ⚡0.77 mWh $0.003829 MCR                                      drop fp
+//   ⚡0.77 mWh $0.003829                                          drop MCR
+//   ⚡0.77mWh $0.003829                                           compressed + cost
+//   ⚡0.77mWh                                                      compressed only
 function buildEnergyText(maxCols: number): string | undefined {
-  if (sessionEnergyJoules <= 0 && sessionCostUsd <= 0) return undefined;
+  const hasEnergy = sessionEnergyJoules > 0 || sessionCostUsd > 0;
+  const hasMCR = config.mcr !== "off" && sessionMcrFp !== null;
 
+  if (!hasEnergy && !hasMCR) return undefined;
+
+  // Energy string levels
   const energyStr = formatEnergy(sessionEnergyJoules);
   const costStr = formatCost(sessionCostUsd);
+  const compactStr = formatEnergyCompact(sessionEnergyJoules);
 
-  // progressive levels
-  const candidates = [
-    `⚡${energyStr} ${costStr}`,   // full
-    `⚡${formatEnergyCompact(sessionEnergyJoules)} ${costStr}`, // merged unit + cost
-    `⚡${formatEnergyCompact(sessionEnergyJoules)}`,  // merged unit only
-  ];
+  // MCR parts in priority order (least important dropped first)
+  // compact → APC → drop< → fp → "MCR" prefix
+  const mcrParts: string[] = [];
+  if (sessionMcrFp) mcrParts.push(`MCR ${sessionMcrFp.slice(0, 8)}`);
+  if (sessionSafeDropBefore > 0) mcrParts.push(`drop<${sessionSafeDropBefore}`);
+  if (sessionApcHitRate !== undefined) mcrParts.push(`APC ${(sessionApcHitRate * 100).toFixed(0)}%`);
+  if (sessionCompactRatio !== undefined) mcrParts.push(`compact ${(sessionCompactRatio * 100).toFixed(0)}%`);
+
+  // Build candidates from most to least detailed
+  const candidates: string[] = [];
+
+  if (hasEnergy && hasMCR) {
+    // Full energy + full MCR, then drop MCR parts from the end
+    // Extra space between cost and MCR for visual separation
+    const energyPrefix = [`⚡${energyStr}`, costStr].join(" ");
+    candidates.push([energyPrefix, mcrParts.join(" ")].join("  "));
+    for (let drop = 1; drop <= mcrParts.length; drop++) {
+      const mcrText = mcrParts.slice(0, mcrParts.length - drop).join(" ");
+      const partial = mcrText ? [energyPrefix, mcrText].join("  ") : energyPrefix;
+      if (partial !== candidates[candidates.length - 1]) candidates.push(partial);
+    }
+  } else if (hasMCR) {
+    // MCR only, no energy yet
+    candidates.push(mcrParts.join(" "));
+    for (let drop = 1; drop < mcrParts.length; drop++) {
+      candidates.push(mcrParts.slice(0, mcrParts.length - drop).join(" "));
+    }
+    candidates.push(mcrParts[0]);
+  } else {
+    // Energy only (no MCR data or mcr is off)
+    candidates.push(`⚡${energyStr} ${costStr}`);
+  }
+
+  // Add compressed energy levels (drop MCR, then compress energy)
+  if (hasEnergy) {
+    const compressedCost = `⚡${compactStr} ${costStr}`;
+    const compressedOnly = `⚡${compactStr}`;
+    // Only add if not already present (avoids duplicates)
+    if (candidates[candidates.length - 1] !== compressedCost) candidates.push(compressedCost);
+    if (candidates[candidates.length - 1] !== compressedOnly) candidates.push(compressedOnly);
+  }
 
   for (const text of candidates) {
     if (termVisWidth(text) <= maxCols) return text;
@@ -858,15 +940,21 @@ function updateEnergyStatus(ctx: any): void {
   // different provider, and prevents the quota from appearing before any
   // turn has completed (quota is pre-fetched eagerly so it's ready to display
   // as soon as the first turn ends, alongside the energy data).
-  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0;
+  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null;
 
   // Statusbar uses full-fidelity text (no width constraint)
+  // MCR is embedded in the energy text when config.mcr is "widget";
+  // for statusbar mode, MCR gets its own status key.
   const energyFull = hasNeuralwattSession ? buildEnergyText(Infinity) : undefined;
+  const mcrFull = hasNeuralwattSession && config.mcr === "statusbar" && sessionMcrFp
+    ? [`MCR ${sessionMcrFp.slice(0, 8)}`, sessionSafeDropBefore > 0 ? `drop<${sessionSafeDropBefore}` : undefined, sessionApcHitRate !== undefined ? `APC ${(sessionApcHitRate * 100).toFixed(0)}%` : undefined, sessionCompactRatio !== undefined ? `compact ${(sessionCompactRatio * 100).toFixed(0)}%` : undefined].filter(Boolean).join(" ")
+    : undefined;
   const quotaFull = hasNeuralwattSession ? buildQuotaText(Infinity) : undefined;
 
   // ─── Status bar ─────────────────────────────────────────────────────────
   const energyStatusbar = config.energy === "statusbar" && energyFull;
   const quotaStatusbar = config.quota === "statusbar" && quotaFull;
+  const mcrStatusbar = config.mcr === "statusbar" && mcrFull;
 
   if (energyStatusbar && quotaStatusbar) {
     const combined = ctx.ui.theme.fg("dim", energyFull! + " | " + quotaFull!);
@@ -884,11 +972,18 @@ function updateEnergyStatus(ctx: any): void {
       ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
     }
   }
+  if (mcrStatusbar) {
+    ctx.ui.setStatus(STATUS_KEY_MCR, ctx.ui.theme.fg("dim", mcrFull!));
+  } else {
+    ctx.ui.setStatus(STATUS_KEY_MCR, undefined);
+  }
 
   // ─── Widget assembly ─────────────────────────────────────────────────────
   // The widget stores raw (unthemed) text so it can re-compress the quota
   // side at render time when the terminal is narrow.
-  const showEnergyWidget = config.energy === "widget" && energyFull;
+  // When config.mcr is "widget", MCR data is embedded in the energy text
+  // (left side) via buildEnergyText; when "statusbar" or "off", it's excluded.
+  const showEnergyWidget = (config.energy === "widget" || config.mcr === "widget") && (energyFull || (config.mcr === "widget" && sessionMcrFp));
   const showQuotaWidget = config.quota === "widget" && quotaFull;
 
   if (showEnergyWidget || showQuotaWidget) {
@@ -1149,10 +1244,11 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async (_event, ctx) => {
     revalidateAbort?.abort();
     cachedQuota = null;
-    // Clear any status bar entries from energy/quota display modes.
+    // Clear any status bar entries from energy/quota/MCR display modes.
     // (widget cleanup is handled by the extension runtime teardown)
     ctx.ui.setStatus(STATUS_KEY_ENERGY, undefined);
     ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
+    ctx.ui.setStatus(STATUS_KEY_MCR, undefined);
   });
 
   pi.on("turn_end", async (_event, ctx) => {
@@ -1170,6 +1266,24 @@ export default function (pi: ExtensionAPI) {
     // read it regardless of ESM module instance identity.
     publishMCRRidge();
 
+    // Extract MCR state from SSE payloads before clearing pending data
+    if (pendingMcrSessionRaw && typeof pendingMcrSessionRaw.session_fp === "string") {
+      sessionMcrFp = pendingMcrSessionRaw.session_fp as string;
+      sessionSafeDropBefore =
+        typeof pendingMcrSessionRaw.safe_drop_before === "number"
+          ? (pendingMcrSessionRaw.safe_drop_before as number)
+          : 0;
+    }
+    if (pendingEnergyRaw) {
+      const mcr = pendingEnergyRaw.mcr as Record<string, unknown> | undefined;
+      if (mcr && typeof mcr === "object") {
+        if (typeof mcr.apc_hit_rate === "number") sessionApcHitRate = mcr.apc_hit_rate as number;
+        if (typeof mcr.mcr_compacted_tokens === "number" && typeof mcr.mcr_original_tokens === "number") {
+          sessionCompactRatio = (mcr.mcr_compacted_tokens as number) / (mcr.mcr_original_tokens as number);
+        }
+      }
+    }
+
     if (pendingEnergyJoules > 0 || pendingCostUsd > 0 || pendingEnergyRaw || pendingMcrSessionRaw || pendingCostRaw) {
       const entry: EnergyEvent = {
         energy_joules: pendingEnergyJoules,
@@ -1178,6 +1292,11 @@ export default function (pi: ExtensionAPI) {
       if (pendingEnergyRaw) entry.sse_energy_raw = pendingEnergyRaw;
       if (pendingMcrSessionRaw) entry.sse_mcr_session_raw = pendingMcrSessionRaw;
       if (pendingCostRaw) entry.sse_cost_raw = pendingCostRaw;
+      // Persist MCR state for replay (latest-wins, not cumulative)
+      if (sessionMcrFp) entry.mcr_fp = sessionMcrFp;
+      if (sessionSafeDropBefore > 0) entry.mcr_safe_drop_before = sessionSafeDropBefore;
+      if (sessionApcHitRate !== undefined) entry.mcr_apc_hit_rate = sessionApcHitRate;
+      if (sessionCompactRatio !== undefined) entry.mcr_compact_ratio = sessionCompactRatio;
       pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;

@@ -3,22 +3,27 @@ import { consumePendingMCR, makeProviderConfig } from "./index";
 import chadFactory from "./chad-mcr-upstream";
 
 // Thin wrapper that delegates to Chad's upstream @neuralwatt/pi-mcr-extension
-// with two runtime patches:
+// with runtime patches that are purely visual — Chad's functional behavior
+// (context-drop, session_fp, headers, conversation-id) runs unmodified.
 //
 //   1. Proxy pi: registerProvider("neuralwatt", ...) stripped of
 //      baseUrl/api/models, env-var values $-prefixed. Then we re-register
 //      our full provider (streamSimple + SWR models + headers) to guarantee
 //      it wins regardless of whether Chad's npm package is also installed.
 //
-//   2. turn_end handler: SSE bridge (consumePendingMCR) feeds energy/MCR
-//      data from index.ts's HTTP tee. Chad reads from after_provider_response
-//      headers and message_end body — neither carries SSE comment data.
+//   2. Prototype hacking: monkey-patch ctx.ui.setStatus to suppress Chad's
+//      nw-mcr/nw-energy status bar writes, since index.ts now handles all
+//      display (energy + MCR inline in one widget, quota on the same line).
+//      Chad's handlers still run — updateStatusBar, in-flight ticker,
+//      context-drop, etc. — we only prevent the duplicate status bar writes.
+//
+//   3. turn_end SSE bridge drain: consumePendingMCR() empties the globalThis
+//      bridge so data doesn't leak between turns. Index.ts already consumed
+//      the data for its own display; Chad reads from after_provider_response
+//      headers and message_end body (separate path).
 //
 // chad-mcr-upstream.ts is fetched from Chad's repo and committed. Update it
-// with: npm run sync-mcr
-//
-// No npm package coupling needed — Chad's file is a local static import,
-// resolved by Pi's jiti just like any multi-file extension.
+// with: npm run sync-mcr. Chad's file is byte-identical to upstream.
 
 // Sentinel on globalThis to detect when Chad's MCR extension has already been
 // loaded directly by Pi (e.g. someone ran `pi install npm:@neuralwatt/pi-mcr-extension`
@@ -92,75 +97,73 @@ export default function (pi: ExtensionAPI) {
   // Idempotent when Chad isn't installed.
   pi.registerProvider("neuralwatt", makeProviderConfig());
 
-  // ── Bridge state (reset on session_start to stay aligned with Chad) ────
+  // ── Prototype hacking: suppress Chad's setStatus writes ──────────────
+  //
+  // Pi's ExtensionRunner shares one uiContext across all extensions.
+  // ctx.ui is a getter that always returns runner.uiContext — the same
+  // object that Chad's handlers receive. By monkey-patching setStatus on
+  // this shared object in our session_start (which fires before any
+  // provider request), we suppress Chad's nw-mcr/nw-energy status bar
+  // writes. Index.ts now handles all display (energy + MCR inline in one
+  // widget line, quota on the same line). Chad's file stays byte-identical.
+  //
+  // Safety: the original setStatus is saved and restored on session_shutdown.
+  // If runner.setUIContext() swaps the entire uiContext (e.g. during mode
+  // change), the re-installation guard in session_start detects the change
+  // and re-patches the new object.
   const MCR_STATUS_KEY = "nw-mcr";
   const ENERGY_STATUS_KEY = "nw-energy";
+  const INTERCEPTED_KEYS = new Set([MCR_STATUS_KEY, ENERGY_STATUS_KEY]);
 
-  let bridgeSessionFp: string | null = null;
-  let bridgeSafeDropBefore = 0;
-  let bridgeTotalEnergyJoules = 0;
+  let savedSetStatus: ((key: string, text: string | undefined) => void) | null = null;
+  let savedUI: any = null;
 
-  pi.on("session_start", async () => {
-    bridgeSessionFp = null;
-    bridgeSafeDropBefore = 0;
-    bridgeTotalEnergyJoules = 0;
+  function interceptedSetStatus(key: string, text: string | undefined) {
+    if (INTERCEPTED_KEYS.has(key)) {
+      // Suppress: index.ts handles all MCR/energy display via its widget.
+      // Chad's handlers still run and update internal state (sessionFp,
+      // safeDropBefore, context-drop) — we just prevent the status bar
+      // writes that would duplicate or conflict with index.ts's display.
+      return;
+    }
+    savedSetStatus!(key, text);
+  }
+
+  function installSetStatusIntercept(ui: any) {
+    if (savedUI === ui && savedSetStatus !== null) return;
+    if (!savedSetStatus || savedUI !== ui) {
+      savedSetStatus = ui.setStatus.bind(ui);
+    }
+    savedUI = ui;
+    ui.setStatus = interceptedSetStatus;
+  }
+
+  function uninstallSetStatusIntercept() {
+    if (savedUI && savedSetStatus) {
+      savedUI.setStatus = savedSetStatus;
+      savedUI = null;
+      savedSetStatus = null;
+    }
+  }
+
+  pi.on("session_start", async (_event: any, ctx: any) => {
+    installSetStatusIntercept(ctx.ui);
   });
 
-  // ── turn_end SSE bridge handler ────────────────────────────────────────
+  pi.on("session_shutdown", async () => {
+    uninstallSetStatusIntercept();
+  });
+
+  // ── turn_end SSE bridge consumer ──────────────────────────────────────
   //
-  // Event ordering: before_provider_request → [stream] → message_update →
-  // message_end → turn_end. Chad's handlers write to nw-mcr/nw-energy during
-  // after_provider_response and message_end. Our turn_end fires after those,
-  // so when both have data, the bridge overwrites Chad's write. This is
-  // correct: SSE comment data and parsed response body come from the same
-  // server response, but SSE comments carry data (energy joules, mcr session)
-  // that the parsed response body doesn't always include.
+  // Consume the SSE bridge data so it doesn't leak between turns.
+  // The display data is handled by index.ts — we just need to drain
+  // the bridge. Chad's context-drop handler uses the data from
+  // after_provider_response headers (separate from the SSE bridge).
   pi.on("turn_end", async (_event: any, ctx: any) => {
     const modelId = ctx.model?.id || "";
     if (!isMCRModel(modelId)) return;
 
-    const { energyRaw, mcrSessionRaw } = consumePendingMCR();
-
-    if (mcrSessionRaw && typeof mcrSessionRaw.session_fp === "string") {
-      bridgeSessionFp = mcrSessionRaw.session_fp as string;
-      bridgeSafeDropBefore =
-        typeof mcrSessionRaw.safe_drop_before === "number"
-          ? (mcrSessionRaw.safe_drop_before as number)
-          : 0;
-
-      const parts = [`MCR ${bridgeSessionFp.slice(0, 8)}`];
-      if (bridgeSafeDropBefore > 0) {
-        parts.push(`drop<${bridgeSafeDropBefore}`);
-      }
-      ctx.ui.setStatus(MCR_STATUS_KEY, parts.join(" | "));
-    }
-
-    if (energyRaw && typeof energyRaw.energy_joules === "number") {
-      bridgeTotalEnergyJoules += energyRaw.energy_joules as number;
-
-      const j = bridgeTotalEnergyJoules;
-      const energyText =
-        j < 1 ? `${(j * 1000).toFixed(0)}mJ` :
-        j < 1000 ? `${j.toFixed(1)}J` :
-        `${(j / 1000).toFixed(2)}kJ`;
-
-      const parts: string[] = [`⚡ ${energyText}`];
-      const mcr = energyRaw.mcr as Record<string, unknown> | undefined;
-      if (mcr && typeof mcr === "object") {
-        if (typeof mcr.apc_hit_rate === "number") {
-          parts.push(`APC ${((mcr.apc_hit_rate as number) * 100).toFixed(0)}%`);
-        }
-        if (
-          typeof mcr.mcr_compacted_tokens === "number" &&
-          typeof mcr.mcr_original_tokens === "number"
-        ) {
-          const ratio =
-            (mcr.mcr_compacted_tokens as number) /
-            (mcr.mcr_original_tokens as number);
-          parts.push(`compact ${(ratio * 100).toFixed(0)}%`);
-        }
-      }
-      ctx.ui.setStatus(ENERGY_STATUS_KEY, parts.join(" | "));
-    }
+    consumePendingMCR();
   });
 }
