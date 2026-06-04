@@ -370,16 +370,13 @@ async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
 interface EnergyEvent {
   energy_joules: number;
   cost_usd: number;
-  // Raw SSE comment payloads, stored verbatim for later reference.
-  // Not used for replay — just persisted to the session log.
+  // Raw SSE comment payloads, stored verbatim. These are the source of
+  // truth for MCR replay — future upstream fields flow through without
+  // code changes. Not used for energy/cost replay (those are cumulative
+  // sums from the explicit fields above).
   sse_energy_raw?: Record<string, unknown>;
   sse_mcr_session_raw?: Record<string, unknown>;
   sse_cost_raw?: Record<string, unknown>;
-  // MCR state (latest-wins on replay, not cumulative)
-  mcr_fp?: string;
-  mcr_safe_drop_before?: number;
-  mcr_apc_hit_rate?: number;
-  mcr_compact_ratio?: number;
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
@@ -481,11 +478,27 @@ function replayEnergyEvents(ctx: any): void {
     if (entry.type === "custom" && entry.customType === ENERGY_ENTRY_TYPE && entry.data) {
       sessionEnergyJoules += entry.data.energy_joules || 0;
       sessionCostUsd += entry.data.cost_usd || 0;
-      // MCR state is latest-wins (not cumulative)
-      if (entry.data.mcr_fp) sessionMcrFp = entry.data.mcr_fp;
-      if (typeof entry.data.mcr_safe_drop_before === "number") sessionSafeDropBefore = entry.data.mcr_safe_drop_before;
-      if (typeof entry.data.mcr_apc_hit_rate === "number") sessionApcHitRate = entry.data.mcr_apc_hit_rate;
-      if (typeof entry.data.mcr_compact_ratio === "number") sessionCompactRatio = entry.data.mcr_compact_ratio;
+      // MCR state from raw SSE payloads (latest-wins, not cumulative).
+      // Reads from the verbatim payloads so new upstream MCR fields
+      // automatically flow through without interface or code changes.
+      const mcrSession = entry.data.sse_mcr_session_raw as Record<string, unknown> | undefined;
+      if (mcrSession && typeof mcrSession.session_fp === "string") {
+        sessionMcrFp = mcrSession.session_fp;
+        sessionSafeDropBefore =
+          typeof mcrSession.safe_drop_before === "number"
+            ? mcrSession.safe_drop_before
+            : 0;
+      }
+      const energyRaw = entry.data.sse_energy_raw as Record<string, unknown> | undefined;
+      if (energyRaw) {
+        const mcr = energyRaw.mcr as Record<string, unknown> | undefined;
+        if (mcr && typeof mcr === "object") {
+          if (typeof mcr.apc_hit_rate === "number") sessionApcHitRate = mcr.apc_hit_rate;
+          if (typeof mcr.mcr_compacted_tokens === "number" && typeof mcr.mcr_original_tokens === "number") {
+            sessionCompactRatio = mcr.mcr_compacted_tokens / mcr.mcr_original_tokens;
+          }
+        }
+      }
     }
   }
 }
@@ -1292,11 +1305,6 @@ export default function (pi: ExtensionAPI) {
       if (pendingEnergyRaw) entry.sse_energy_raw = pendingEnergyRaw;
       if (pendingMcrSessionRaw) entry.sse_mcr_session_raw = pendingMcrSessionRaw;
       if (pendingCostRaw) entry.sse_cost_raw = pendingCostRaw;
-      // Persist MCR state for replay (latest-wins, not cumulative)
-      if (sessionMcrFp) entry.mcr_fp = sessionMcrFp;
-      if (sessionSafeDropBefore > 0) entry.mcr_safe_drop_before = sessionSafeDropBefore;
-      if (sessionApcHitRate !== undefined) entry.mcr_apc_hit_rate = sessionApcHitRate;
-      if (sessionCompactRatio !== undefined) entry.mcr_compact_ratio = sessionCompactRatio;
       pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;
