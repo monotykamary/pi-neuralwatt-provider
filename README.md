@@ -56,6 +56,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
 | Kimi K2.6 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | $2.59 |
+| Nemotron 3 Nano (MCR 1M) | 1.0M | ❌ | ✅ | $0.05 | $0.20 |
 | Claude Opus (Cached) | 1.0M | ❌ | ✅ | $0.00 | $0.00 |
 
 ## Authentication
