@@ -13,9 +13,9 @@
   "zai-org/GLM-5.1-FP8": {
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -44,9 +44,9 @@
   "moonshotai/Kimi-K2.5": {
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -62,9 +62,9 @@
   "moonshotai/Kimi-K2.6": {
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -80,9 +80,9 @@
   "MiniMaxAI/MiniMax-M2.5": {
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -93,9 +93,9 @@
   "Qwen/Qwen3.5-397B-A17B-FP8": {
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -111,9 +111,9 @@
   "Qwen/Qwen3.6-35B-A3B": {
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {

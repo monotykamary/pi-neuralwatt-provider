@@ -16,9 +16,9 @@
     "maxTokens": 202736,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -44,9 +44,9 @@
     "maxTokens": 202736,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -73,9 +73,9 @@
     "maxTokens": 262128,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -104,9 +104,9 @@
     "maxTokens": 202736,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -133,9 +133,9 @@
     "maxTokens": 262128,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -164,9 +164,9 @@
     "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -192,9 +192,9 @@
     "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -220,9 +220,9 @@
     "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -269,9 +269,9 @@
     "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -301,9 +301,9 @@
     "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
@@ -332,9 +332,9 @@
     "maxTokens": 16384,
     "thinkingLevelMap": {
       "minimal": null,
-      "low": null,
+      "low": "low",
       "medium": "medium",
-      "high": null,
+      "high": "high",
       "xhigh": null
     },
     "compat": {
