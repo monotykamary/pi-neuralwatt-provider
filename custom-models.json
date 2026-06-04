@@ -14,8 +14,17 @@
     },
     "contextWindow": 202736,
     "maxTokens": 202736,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -33,8 +42,17 @@
     },
     "contextWindow": 202736,
     "maxTokens": 202736,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -53,8 +71,17 @@
     },
     "contextWindow": 262128,
     "maxTokens": 262128,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     },
     "vision": {
       "maxImagesPerRequest": 20
@@ -75,8 +102,17 @@
     },
     "contextWindow": 202736,
     "maxTokens": 202736,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -95,8 +131,17 @@
     },
     "contextWindow": 262128,
     "maxTokens": 262128,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     },
     "vision": {
       "maxImagesPerRequest": 20
@@ -117,8 +162,17 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -136,8 +190,17 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -155,8 +218,17 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -175,7 +247,8 @@
     "contextWindow": 1048576,
     "maxTokens": 16384,
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens"
     }
   },
   {
@@ -194,8 +267,17 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     },
     "vision": {
       "maxImagesPerRequest": 20
@@ -217,8 +299,17 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     },
     "vision": {
       "maxImagesPerRequest": 20
@@ -239,9 +330,18 @@
     },
     "contextWindow": 1048576,
     "maxTokens": 16384,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": null,
+      "medium": "medium",
+      "high": null,
+      "xhigh": null
+    },
     "compat": {
       "supportsDeveloperRole": false,
-      "thinkingFormat": "qwen-chat-template"
+      "maxTokensField": "max_tokens",
+      "thinkingFormat": "qwen-chat-template",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   {
@@ -260,7 +360,9 @@
     "contextWindow": 1000000,
     "maxTokens": 32000,
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
     }
   }
 ]

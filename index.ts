@@ -122,12 +122,21 @@ interface NeuralwattModel {
   };
   contextWindow: number;
   maxTokens: number;
+  thinkingLevelMap?: {
+    minimal?: string | null;
+    low?: string | null;
+    medium?: string | null;
+    high?: string | null;
+    xhigh?: string | null;
+  };
   compat?: {
     supportsDeveloperRole?: boolean;
     supportsStore?: boolean;
     maxTokensField?: "max_completion_tokens" | "max_tokens";
     thinkingFormat?: "openai" | "openrouter" | "zai" | "qwen" | "qwen-chat-template";
     supportsReasoningEffort?: boolean;
+    requiresAssistantAfterToolResult?: boolean;
+    requiresReasoningContentOnAssistantMessages?: boolean;
   };
   vision?: {
     maxImagesPerRequest?: number;
@@ -148,6 +157,9 @@ function applyPatch(model: NeuralwattModel, patch: Record<string, any>): Neuralw
   }
   if (!result.reasoning && result.compat?.thinkingFormat) {
     delete result.compat.thinkingFormat;
+  }
+  if (!result.reasoning && result.thinkingLevelMap) {
+    delete result.thinkingLevelMap;
   }
   if (result.compat && Object.keys(result.compat).length === 0) {
     delete result.compat;
@@ -203,6 +215,9 @@ function buildModels(
       contextWindow: model.contextWindow,
       maxTokens: model.maxTokens,
     };
+    if (model.thinkingLevelMap) {
+      result.thinkingLevelMap = model.thinkingLevelMap;
+    }
     if (model.compat) {
       result.compat = model.compat;
     }
