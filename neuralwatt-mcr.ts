@@ -120,10 +120,15 @@ export default function (pi: ExtensionAPI) {
 
   function interceptedSetStatus(key: string, text: string | undefined) {
     if (INTERCEPTED_KEYS.has(key)) {
-      // Suppress: index.ts handles all MCR/energy display via its widget.
-      // Chad's handlers still run and update internal state (sessionFp,
-      // safeDropBefore, context-drop) — we just prevent the status bar
-      // writes that would duplicate or conflict with index.ts's display.
+      // Chad writes "" for empty/cleared states (no sessionFp, no energy),
+      // which occupies a footer status slot with no visible content —
+      // producing a blank line. Translate "" to undefined so the slot is
+      // properly freed. Non-empty writes are suppressed (index.ts handles
+      // display via its widget); Chad's handlers still update internal state
+      // (sessionFp, safeDropBefore, context-drop).
+      if (!text) {
+        savedSetStatus!(key, undefined);
+      }
       return;
     }
     savedSetStatus!(key, text);
@@ -148,9 +153,25 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async (_event: any, ctx: any) => {
     installSetStatusIntercept(ctx.ui);
+    // Chad's session_start wrote "" to nw-mcr/nw-energy before our
+    // intercept was installed (Chad's handler runs first in load
+    // order). Clear the empty-string entries via the saved original
+    // setStatus so they don't occupy footer slots as blank lines.
+    if (savedSetStatus) {
+      savedSetStatus(MCR_STATUS_KEY, undefined);
+      savedSetStatus(ENERGY_STATUS_KEY, undefined);
+    }
   });
 
   pi.on("session_shutdown", async () => {
+    // Clear Chad's empty-string entries before uninstalling the intercept.
+    // Chad's session_shutdown handler runs after ours and writes "" to
+    // the now-unintercepted setStatus, but the session is ending so
+    // those writes are discarded with the ui context.
+    if (savedSetStatus) {
+      savedSetStatus(MCR_STATUS_KEY, undefined);
+      savedSetStatus(ENERGY_STATUS_KEY, undefined);
+    }
     uninstallSetStatusIntercept();
   });
 

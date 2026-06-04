@@ -238,6 +238,226 @@ describe("turn_end SSE bridge handler", () => {
   });
 });
 
+describe("setStatus intercept: empty-string translation", () => {
+  // Chad writes "" for empty/cleared states (no sessionFp, no energy).
+  // In pi's extension model, "" occupies a footer status slot with no
+  // visible content (producing a blank line), while undefined frees it.
+  // The intercept in neuralwatt-mcr.ts translates "" → undefined so
+  // Chad's empty-state writes don't leave ghost slots.
+
+  function makeTrackedUI() {
+    const calls: Array<{ key: string; text: string | undefined }> = [];
+    return {
+      calls,
+      setStatus(key: string, text: string | undefined) {
+        calls.push({ key, text });
+      },
+    };
+  }
+
+  function makeCtxWithUI(modelId: string, ui: any) {
+    return {
+      model: { id: modelId },
+      sessionManager: { getSessionId: () => "sess-test-1234" },
+      ui,
+    };
+  }
+
+  it("translates Chad's empty-string writes to undefined for intercepted keys", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    const ui = makeTrackedUI();
+
+    // Run all session_start handlers to install the intercept
+    const handlers = pi.handlers.get("session_start")!;
+    for (const h of handlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // Now simulate Chad's updateStatusBar writing "" for empty states
+    ui.setStatus("nw-mcr", "");
+    ui.setStatus("nw-energy", "");
+
+    // The intercept should have translated "" → undefined for intercepted keys
+    const mcrCalls = ui.calls.filter((c) => c.key === "nw-mcr");
+    const energyCalls = ui.calls.filter((c) => c.key === "nw-energy");
+
+    // There should be at least one call per key where text is undefined
+    // (either from the intercept's translation or from our explicit clear)
+    const mcrEmpty = mcrCalls.filter((c) => c.text === undefined);
+    const energyEmpty = energyCalls.filter((c) => c.text === undefined);
+    expect(mcrEmpty.length).toBeGreaterThanOrEqual(1);
+    expect(energyEmpty.length).toBeGreaterThanOrEqual(1);
+
+    // No "" should remain in the final call for each intercepted key
+    const lastMcr = mcrCalls[mcrCalls.length - 1];
+    const lastEnergy = energyCalls[energyCalls.length - 1];
+    expect(lastMcr.text).not.toBe("");
+    expect(lastEnergy.text).not.toBe("");
+  });
+
+  it("passes through non-intercepted keys unchanged", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    const ui = makeTrackedUI();
+
+    const handlers = pi.handlers.get("session_start")!;
+    for (const h of handlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // Non-intercepted keys should pass through to the real setStatus
+    ui.setStatus("other-ext", "visible");
+    ui.setStatus("other-ext", "");
+    ui.setStatus("other-ext", undefined);
+
+    const otherCalls = ui.calls.filter((c) => c.key === "other-ext");
+    expect(otherCalls).toEqual([
+      { key: "other-ext", text: "visible" },
+      { key: "other-ext", text: "" },
+      { key: "other-ext", text: undefined },
+    ]);
+  });
+
+  it("suppresses Chad's non-empty status writes for intercepted keys", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    const ui = makeTrackedUI();
+
+    const handlers = pi.handlers.get("session_start")!;
+    for (const h of handlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // Non-empty writes for intercepted keys are suppressed (index.ts
+    // handles display via its widget)
+    ui.setStatus("nw-mcr", "MCR abc12345 | drop<5");
+    ui.setStatus("nw-energy", "⚡ 1.5J");
+
+    const mcrNonEmpty = ui.calls.filter(
+      (c) => c.key === "nw-mcr" && c.text !== undefined && c.text !== "",
+    );
+    const energyNonEmpty = ui.calls.filter(
+      (c) => c.key === "nw-energy" && c.text !== undefined && c.text !== "",
+    );
+    expect(mcrNonEmpty.length).toBe(0);
+    expect(energyNonEmpty.length).toBe(0);
+  });
+
+  it("clears Chad's empty-string entries left by session_start handler gap", async () => {
+    // Chad's session_start handler runs before the intercept is installed,
+    // so his setStatus("nw-mcr", "") and setStatus("nw-energy", "") hit
+    // the real setStatus. Our handler must clean those up with undefined.
+    const pi = makeMockPi();
+    extDefault(pi);
+    const ui = makeTrackedUI();
+
+    // Simulate the sequence: Chad's handler writes "", then our handler
+    // installs the intercept and cleans up. Since we can't control
+    // handler order in the mock, we verify the end state: after all
+    // session_start handlers, the last write for nw-mcr/nw-energy
+    // must be undefined (not "").
+    const handlers = pi.handlers.get("session_start")!;
+    for (const h of handlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    const mcrCalls = ui.calls.filter((c) => c.key === "nw-mcr");
+    const energyCalls = ui.calls.filter((c) => c.key === "nw-energy");
+
+    // The last call for each intercepted key must be undefined
+    const lastMcr = mcrCalls[mcrCalls.length - 1];
+    const lastEnergy = energyCalls[energyCalls.length - 1];
+    expect(lastMcr).toBeDefined();
+    expect(lastEnergy).toBeDefined();
+    expect(lastMcr.text).toBeUndefined();
+    expect(lastEnergy.text).toBeUndefined();
+  });
+
+  it("clears Chad's keys before uninstalling on session_shutdown", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    const ui = makeTrackedUI();
+
+    // Install intercept first
+    const startHandlers = pi.handlers.get("session_start")!;
+    for (const h of startHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // Now run session_shutdown handlers
+    const shutdownHandlers = pi.handlers.get("session_shutdown")!;
+    for (const h of shutdownHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // After shutdown, there should be undefined calls for the intercepted keys
+    // (our handler clears them before uninstalling the intercept)
+    const mcrCalls = ui.calls.filter((c) => c.key === "nw-mcr");
+    const energyCalls = ui.calls.filter((c) => c.key === "nw-energy");
+
+    const mcrUndefinedCalls = mcrCalls.filter((c) => c.text === undefined);
+    const energyUndefinedCalls = energyCalls.filter((c) => c.text === undefined);
+    expect(mcrUndefinedCalls.length).toBeGreaterThanOrEqual(1);
+    expect(energyUndefinedCalls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("restores original setStatus after session_shutdown", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    const ui = makeTrackedUI();
+
+    const startHandlers = pi.handlers.get("session_start")!;
+    for (const h of startHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // After session_start, setStatus should be intercepted (not identity)
+    expect(ui.setStatus.name).toBe("interceptedSetStatus");
+
+    const shutdownHandlers = pi.handlers.get("session_shutdown")!;
+    for (const h of shutdownHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui));
+    }
+
+    // After shutdown, setStatus should be restored to the original
+    expect(ui.setStatus.name).not.toBe("interceptedSetStatus");
+  });
+
+  it("re-installs intercept when ctx.ui object changes between sessions", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    const ui1 = makeTrackedUI();
+    const ui2 = makeTrackedUI();
+
+    // First session
+    const startHandlers = pi.handlers.get("session_start")!;
+    for (const h of startHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui1));
+    }
+    expect(ui1.setStatus.name).toBe("interceptedSetStatus");
+
+    // Shutdown
+    const shutdownHandlers = pi.handlers.get("session_shutdown")!;
+    for (const h of shutdownHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui1));
+    }
+
+    // Second session with a new ui object (simulates runner.setUIContext swap)
+    for (const h of startHandlers) {
+      await h({}, makeCtxWithUI("neuralwatt/glm-5.1-long", ui2));
+    }
+    expect(ui2.setStatus.name).toBe("interceptedSetStatus");
+
+    // Verify that writes to the new ui object are also intercepted
+    ui2.setStatus("nw-mcr", "");
+    const mcrCalls = ui2.calls.filter((c) => c.key === "nw-mcr");
+    const lastMcr = mcrCalls[mcrCalls.length - 1];
+    expect(lastMcr.text).toBeUndefined();
+  });
+});
+
 describe("double-load sentinel", () => {
   it("skips Chad's factory but still re-registers our provider when sentinel is set", async () => {
     (globalThis as any)[MCR_LOADED_SENTINEL] = true;
