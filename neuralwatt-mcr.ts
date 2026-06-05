@@ -118,6 +118,10 @@ export default function (pi: ExtensionAPI) {
   let savedSetStatus: ((key: string, text: string | undefined) => void) | null = null;
   let savedUI: any = null;
 
+  function isSetStatusFn(fn: unknown): fn is (key: string, text: string | undefined) => void {
+    return typeof fn === "function";
+  }
+
   function interceptedSetStatus(key: string, text: string | undefined) {
     if (INTERCEPTED_KEYS.has(key)) {
       // Chad writes "" for empty/cleared states (no sessionFp, no energy),
@@ -126,17 +130,25 @@ export default function (pi: ExtensionAPI) {
       // properly freed. Non-empty writes are suppressed (index.ts handles
       // display via its widget); Chad's handlers still update internal state
       // (sessionFp, safeDropBefore, context-drop).
-      if (!text) {
-        savedSetStatus!(key, undefined);
+      if (!text && isSetStatusFn(savedSetStatus)) {
+        savedSetStatus(key, undefined);
       }
       return;
     }
-    savedSetStatus!(key, text);
+    if (isSetStatusFn(savedSetStatus)) {
+      savedSetStatus(key, text);
+    }
   }
 
   function installSetStatusIntercept(ui: any) {
     if (savedUI === ui && savedSetStatus !== null) return;
     if (!savedSetStatus || savedUI !== ui) {
+      if (!ui || typeof ui.setStatus !== "function") {
+        // UI context missing or setStatus not a function — skip intercept.
+        savedSetStatus = null;
+        savedUI = ui;
+        return;
+      }
       savedSetStatus = ui.setStatus.bind(ui);
     }
     savedUI = ui;
@@ -157,7 +169,7 @@ export default function (pi: ExtensionAPI) {
     // intercept was installed (Chad's handler runs first in load
     // order). Clear the empty-string entries via the saved original
     // setStatus so they don't occupy footer slots as blank lines.
-    if (savedSetStatus) {
+    if (isSetStatusFn(savedSetStatus)) {
       savedSetStatus(MCR_STATUS_KEY, undefined);
       savedSetStatus(ENERGY_STATUS_KEY, undefined);
     }
@@ -168,7 +180,7 @@ export default function (pi: ExtensionAPI) {
     // Chad's session_shutdown handler runs after ours and writes "" to
     // the now-unintercepted setStatus, but the session is ending so
     // those writes are discarded with the ui context.
-    if (savedSetStatus) {
+    if (isSetStatusFn(savedSetStatus)) {
       savedSetStatus(MCR_STATUS_KEY, undefined);
       savedSetStatus(ENERGY_STATUS_KEY, undefined);
     }
