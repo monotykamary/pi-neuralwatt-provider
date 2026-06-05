@@ -26,6 +26,7 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const NEURALWATT_API_KEY = process.env.NEURALWATT_API_KEY;
 const MODELS_API_URL = 'https://api.neuralwatt.com/v1/models';
 const MODELS_JSON_PATH = path.join(__dirname, '..', 'models.json');
 const CUSTOM_MODELS_JSON_PATH = path.join(__dirname, '..', 'custom-models.json');
@@ -275,7 +276,11 @@ async function main() {
   console.log(`Fetching models from ${MODELS_API_URL}...`);
 
   try {
-    const response = await fetch(MODELS_API_URL);
+    const headers = {};
+    if (NEURALWATT_API_KEY) {
+      headers['Authorization'] = `Bearer ${NEURALWATT_API_KEY}`;
+    }
+    const response = await fetch(MODELS_API_URL, { headers });
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }

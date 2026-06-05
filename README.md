@@ -32,15 +32,21 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | Model | Context | Vision | Reasoning | Input $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|------------|
 | Devstral-Small-2-24B-Instruct-2512 | 262K | ✅ | ❌ | $0.12 | $0.35 |
+| GLM 5.1 long (coherence canary: keep-recent 48k) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5 Fast | 203K | ❌ | ❌ | $1.10 | $3.60 |
 | GLM-5.1 | 203K | ❌ | ✅ | $1.10 | $3.60 |
+| GLM-5.1 (flex) | 203K | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 Fast | 203K | ❌ | ❌ | $1.10 | $3.60 |
+| GLM-5.1 Long (Virtual Context) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GPT-OSS 20B | 16K | ❌ | ✅ | $0.03 | $0.16 |
 | Kimi K2.5 | 262K | ✅ | ✅ | $0.52 | $2.59 |
 | Kimi K2.5 Fast | 262K | ✅ | ❌ | $0.52 | $2.59 |
 | Kimi K2.6 | 262K | ✅ | ✅ | $0.69 | $3.22 |
+| Kimi K2.6 (flex) | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.6 Fast | 262K | ✅ | ❌ | $0.69 | $3.22 |
+| Kimi K2.6 Long (Virtual Context) | 1.0M | ✅ | ✅ | $0.69 | $3.22 |
 | MiniMax M2.5 | 197K | ❌ | ✅ | $0.35 | $1.38 |
+| Nemotron 3 Ultra 550B (NVFP4) | 1.0M | ❌ | ✅ | $0.69 | $4.14 |
 | Qwen3.5 397B | 262K | ❌ | ✅ | $0.69 | $4.14 |
 | Qwen3.5 397B Fast | 262K | ❌ | ❌ | $0.69 | $4.14 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.29 | $1.15 |
@@ -48,13 +54,8 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | GLM-5.1 Canary | 203K | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 NVFP4 Canary | 203K | ❌ | ✅ | $1.10 | $3.60 |
 | Kimi K2.6 Canary | 262K | ✅ | ✅ | $0.69 | $3.22 |
-| GLM-5.1 Flex | 203K | ❌ | ✅ | $1.10 | $3.60 |
-| Kimi K2.6 Flex | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
-| GLM-5.1 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
-| GLM-5.1 Long Coherence (MCR 1M Canary) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
-| Kimi K2.6 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | $2.59 |
 | Nemotron 3 Nano (MCR 1M) | 1.0M | ❌ | ✅ | $0.05 | $0.20 |
 | Claude Opus (Cached) | 1.0M | ❌ | ✅ | $0.00 | $0.00 |
