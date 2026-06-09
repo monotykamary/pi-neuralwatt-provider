@@ -10,19 +10,6 @@
       "maxTokensField": "max_tokens"
     }
   },
-  "zai-org/GLM-5.1-FP8": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
   "glm-5.1-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
@@ -59,19 +46,6 @@
       "maxTokensField": "max_tokens"
     }
   },
-  "moonshotai/Kimi-K2.6": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
   "kimi-k2.6-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
@@ -90,35 +64,9 @@
       "requiresReasoningContentOnAssistantMessages": true
     }
   },
-  "Qwen/Qwen3.5-397B-A17B-FP8": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
   "qwen3.5-397b-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
-    }
-  },
-  "Qwen/Qwen3.6-35B-A3B": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   "qwen3.6-35b-fast": {
