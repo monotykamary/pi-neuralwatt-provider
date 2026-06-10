@@ -197,6 +197,117 @@
     }
   },
   {
+    "id": "zai-org/GLM-5.1-FP8",
+    "name": "GLM-5.1 (FP8)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202736,
+    "maxTokens": 202736,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null
+    },
+    "compat": {
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
+    }
+  },
+  {
+    "id": "moonshotai/Kimi-K2.6",
+    "name": "Kimi K2.6",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 3.22,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 262128,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null
+    },
+    "compat": {
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "Qwen/Qwen3.6-35B-A3B",
+    "name": "Qwen3.6 35B (A3B)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.29,
+      "output": 1.15,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 131056,
+    "maxTokens": 131056,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null
+    },
+    "compat": {
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 4
+    }
+  },
+  {
+    "id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4",
+    "name": "Nemotron 3 Ultra 550B (NVFP4)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 4.14,
+      "cacheRead": 0.23,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false
+    }
+  },
+  {
     "id": "neuralwatt/claude-opus-cached",
     "name": "Claude Opus (Cached)",
     "reasoning": true,
