@@ -20,25 +20,6 @@
     }
   },
   {
-    "id": "neuralwatt/glm-5.1-long-coherence-canary",
-    "name": "GLM 5.1 long (coherence canary: keep-recent 48k)",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 1.1,
-      "output": 3.6,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
-    "compat": {
-      "supportsDeveloperRole": false
-    }
-  },
-  {
     "id": "glm-5-fast",
     "name": "GLM-5 Fast",
     "reasoning": false,
@@ -58,27 +39,8 @@
     }
   },
   {
-    "id": "zai-org/GLM-5.1-FP8",
+    "id": "glm-5.1",
     "name": "GLM-5.1",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 1.1,
-      "output": 3.6,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 202736,
-    "maxTokens": 202736,
-    "compat": {
-      "supportsDeveloperRole": false
-    }
-  },
-  {
-    "id": "glm-5.1-flex",
-    "name": "GLM-5.1 (flex)",
     "reasoning": true,
     "input": [
       "text"
@@ -110,25 +72,6 @@
     },
     "contextWindow": 202736,
     "maxTokens": 202736,
-    "compat": {
-      "supportsDeveloperRole": false
-    }
-  },
-  {
-    "id": "neuralwatt/glm-5.1-long",
-    "name": "GLM-5.1 Long (Virtual Context)",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 1.1,
-      "output": 3.6,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
     "compat": {
       "supportsDeveloperRole": false
     }
@@ -200,31 +143,8 @@
     }
   },
   {
-    "id": "moonshotai/Kimi-K2.6",
+    "id": "kimi-k2.6",
     "name": "Kimi K2.6",
-    "reasoning": true,
-    "input": [
-      "text",
-      "image"
-    ],
-    "cost": {
-      "input": 0.69,
-      "output": 3.22,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 262128,
-    "maxTokens": 262128,
-    "compat": {
-      "supportsDeveloperRole": false
-    },
-    "vision": {
-      "maxImagesPerRequest": 20
-    }
-  },
-  {
-    "id": "kimi-k2.6-flex",
-    "name": "Kimi K2.6 (flex)",
     "reasoning": true,
     "input": [
       "text",
@@ -269,29 +189,6 @@
     }
   },
   {
-    "id": "neuralwatt/kimi-k2.6-long",
-    "name": "Kimi K2.6 Long (Virtual Context)",
-    "reasoning": true,
-    "input": [
-      "text",
-      "image"
-    ],
-    "cost": {
-      "input": 0.69,
-      "output": 3.22,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
-    "compat": {
-      "supportsDeveloperRole": false
-    },
-    "vision": {
-      "maxImagesPerRequest": 20
-    }
-  },
-  {
     "id": "MiniMaxAI/MiniMax-M2.5",
     "name": "MiniMax M2.5",
     "reasoning": true,
@@ -311,26 +208,7 @@
     }
   },
   {
-    "id": "nvidia/NVIDIA-Nemotron-3-Ultra-550B-A55B-NVFP4",
-    "name": "Nemotron 3 Ultra 550B (NVFP4)",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0.69,
-      "output": 4.14,
-      "cacheRead": 0.23,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
-    "compat": {
-      "supportsDeveloperRole": false
-    }
-  },
-  {
-    "id": "Qwen/Qwen3.5-397B-A17B-FP8",
+    "id": "qwen3.5-397b",
     "name": "Qwen3.5 397B",
     "reasoning": true,
     "input": [
@@ -368,7 +246,7 @@
     }
   },
   {
-    "id": "Qwen/Qwen3.6-35B-A3B",
+    "id": "qwen3.6-35b",
     "name": "Qwen3.6 35B",
     "reasoning": true,
     "input": [
