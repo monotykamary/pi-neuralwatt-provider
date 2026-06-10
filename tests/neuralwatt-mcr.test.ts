@@ -98,6 +98,11 @@ beforeEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
   delete (globalThis as any)[MCR_LOADED_SENTINEL];
+  // Chad's v2.4.0 dual-instance guard uses a separate sentinel on globalThis.
+  // If we don't clear it, the second test's chadFactory(proxy) call sees the
+  // sentinel from the first test and returns early — no handlers, no env-var
+  // seeds, no provider registration from Chad's side.
+  delete (globalThis as any).__NEURALWATT_MCR_ACTIVE__;
   try {
     fs.rmSync(logPath());
   } catch {
@@ -109,6 +114,7 @@ afterEach(() => {
   delete process.env.X_NW_CONVERSATION_ID;
   delete process.env.X_NW_MCR_EXT_VERSION;
   delete (globalThis as any)[MCR_LOADED_SENTINEL];
+  delete (globalThis as any).__NEURALWATT_MCR_ACTIVE__;
 });
 
 describe("provider registration", () => {

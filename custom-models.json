@@ -1,5 +1,65 @@
 [
   {
+    "id": "glm-5.1-flex",
+    "name": "GLM-5.1 Flex",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.1,
+      "output": 3.6,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 202736,
+    "maxTokens": 202736,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null
+    },
+    "compat": {
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
+    }
+  },
+  {
+    "id": "kimi-k2.6-flex",
+    "name": "Kimi K2.6 Flex",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 3.22,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 262128,
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null
+    },
+    "compat": {
+      "supportsDeveloperRole": false,
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
     "id": "glm-5.1-canary",
     "name": "GLM-5.1 Canary",
     "reasoning": true,
