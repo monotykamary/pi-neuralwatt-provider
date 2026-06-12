@@ -1,25 +1,5 @@
 [
   {
-    "id": "mistralai/Devstral-Small-2-24B-Instruct-2512",
-    "name": "Devstral-Small-2-24B-Instruct-2512",
-    "reasoning": false,
-    "input": [
-      "text",
-      "image"
-    ],
-    "cost": {
-      "input": 0.12,
-      "output": 0.35,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 262128,
-    "maxTokens": 262128,
-    "compat": {
-      "supportsDeveloperRole": false
-    }
-  },
-  {
     "id": "neuralwatt/glm-5.1-long-coherence-canary",
     "name": "GLM 5.1 long (coherence canary: keep-recent 48k)",
     "reasoning": true,
@@ -131,26 +111,6 @@
     "maxTokens": 1048560,
     "compat": {
       "supportsDeveloperRole": false
-    }
-  },
-  {
-    "id": "openai/gpt-oss-20b",
-    "name": "GPT-OSS 20B",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0.03,
-      "output": 0.16,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 16368,
-    "maxTokens": 16368,
-    "compat": {
-      "supportsDeveloperRole": false,
-      "supportsReasoningEffort": true
     }
   },
   {
@@ -289,25 +249,6 @@
     },
     "vision": {
       "maxImagesPerRequest": 20
-    }
-  },
-  {
-    "id": "MiniMaxAI/MiniMax-M2.5",
-    "name": "MiniMax M2.5",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0.35,
-      "output": 1.38,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 196592,
-    "maxTokens": 196592,
-    "compat": {
-      "supportsDeveloperRole": false
     }
   },
   {

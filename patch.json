@@ -1,10 +1,4 @@
 {
-  "mistralai/Devstral-Small-2-24B-Instruct-2512": {
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresAssistantAfterToolResult": true
-    }
-  },
   "glm-5-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
@@ -13,19 +7,6 @@
   "glm-5.1-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
-    }
-  },
-  "openai/gpt-oss-20b": {
-    "thinkingLevelMap": {
-      "minimal": "low",
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   "moonshotai/Kimi-K2.5": {
@@ -49,19 +30,6 @@
   "kimi-k2.6-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
-    }
-  },
-  "MiniMaxAI/MiniMax-M2.5": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
     }
   },
   "qwen3.5-397b-fast": {
