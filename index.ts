@@ -32,13 +32,18 @@
  * Display Configuration:
  *   Create ~/.pi/agent/extensions/neuralwatt.json to configure the footer display:
  *   {
- *     "energy": "widget",   // "widget" | "statusbar" | "off"
- *     "quota": "widget"      // "widget" | "statusbar" | "off"
+ *     "energy": "widget",         // "widget" | "statusbar" | "off"
+ *     "quota": "widget",          // "widget" | "statusbar" | "off"
+ *     "mcr": "widget",            // "widget" | "statusbar" | "off"
+ *     "hideOnOtherProvider": false  // hide display when a non-Neuralwatt model is active
  *   }
  *
  *   - "widget" (default): rendered in the below-editor status line
  *   - "statusbar": rendered in the built-in pi status bar
  *   - "off": hidden entirely (for quota, also skips the API fetch)
+ *   - hideOnOtherProvider: when true, auto-hide all Neuralwatt display if the
+ *     active model's provider is not "neuralwatt". The display returns when you
+ *     switch back to a Neuralwatt model. Default: false.
  *
  * Neuralwatt Features:
  *   - OpenAI-compatible API (https://api.neuralwatt.com/v1)
@@ -72,6 +77,9 @@ interface NeuralwattConfig {
   energy: DisplayMode;
   quota: DisplayMode;
   mcr: DisplayMode;
+  // When true, hide energy/quota/MCR display if the active model's provider
+  // is not "neuralwatt". Prevents stale display after switching providers.
+  hideOnOtherProvider: boolean;
 }
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "extensions", "neuralwatt.json");
@@ -83,7 +91,7 @@ function parseDisplayMode(value: unknown, fallback: DisplayMode): DisplayMode {
   return fallback;
 }
 
-const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget" };
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", hideOnOtherProvider: false };
 
 function loadConfig(): NeuralwattConfig {
   try {
@@ -92,6 +100,7 @@ function loadConfig(): NeuralwattConfig {
       energy: parseDisplayMode(raw.energy, "widget"),
       quota: parseDisplayMode(raw.quota, "widget"),
       mcr: parseDisplayMode(raw.mcr, "widget"),
+      hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : false,
     };
   } catch {
     // Config file missing or invalid — populate with defaults so the user can discover it
@@ -970,6 +979,27 @@ function updateEnergyStatus(ctx: any): void {
   // as soon as the first turn ends, alongside the energy data).
   const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null;
 
+  // When hideOnOtherProvider is enabled, suppress display if the active
+  // model is from a different provider. This prevents stale energy/quota
+  // info from persisting after the user switches to a non-Neuralwatt model.
+  // Use a try/catch because ctx.model is a getter that throws on stale contexts.
+  let currentProvider: string | undefined;
+  try {
+    currentProvider = (ctx.model as any)?.provider as string | undefined;
+  } catch {
+    currentProvider = undefined;
+  }
+  const hiddenByOtherProvider = config.hideOnOtherProvider && currentProvider !== undefined && currentProvider !== PROVIDER_ID;
+
+  // When hideOnOtherProvider suppresses display, clear everything.
+  if (hiddenByOtherProvider) {
+    ctx.ui.setStatus(STATUS_KEY_ENERGY, undefined);
+    ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
+    ctx.ui.setStatus(STATUS_KEY_MCR, undefined);
+    ctx.ui.setWidget("neuralwatt", undefined);
+    return;
+  }
+
   // Statusbar uses full-fidelity text (no width constraint)
   // MCR is embedded in the energy text when config.mcr is "widget";
   // for statusbar mode, MCR gets its own status key.
@@ -1353,5 +1383,10 @@ export default function (pi: ExtensionAPI) {
         }
       });
     }
+  });
+
+  // Re-evaluate display when the active model changes (for hideOnOtherProvider)
+  pi.on("model_select", async (_event, ctx) => {
+    updateEnergyStatus(ctx);
   });
 }
