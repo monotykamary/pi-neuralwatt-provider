@@ -71,7 +71,13 @@ Get your API key from [neuralwatt.com](https://neuralwatt.com).
 
 ### Option 1: Using `pi install` (Recommended)
 
-Install directly from GitHub:
+Install from npm:
+
+```bash
+pi install npm:pi-neuralwatt-provider
+```
+
+Or install directly from GitHub:
 
 ```bash
 pi install https://github.com/monotykamary/pi-neuralwatt-provider
