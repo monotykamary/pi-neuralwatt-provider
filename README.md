@@ -82,7 +82,7 @@ pi install https://github.com/monotykamary/pi-neuralwatt-provider
 Install from npm:
 
 ```bash
-npm install pi-neuralwatt-provider
+npm install npm:pi-neuralwatt-provider
 ```
 
 ### Option 3: Manual Clone
