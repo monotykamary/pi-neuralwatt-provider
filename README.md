@@ -43,6 +43,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | Kimi K2.6 (flex) | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.6 Fast | 262K | ✅ | ❌ | $0.69 | $3.22 |
 | Kimi K2.6 Long (Virtual Context) | 1.0M | ✅ | ✅ | $0.69 | $3.22 |
+| Kimi K2.7 Code | 262K | ✅ | ✅ | $0.95 | $4.00 |
 | Qwen3.5 397B | 262K | ❌ | ✅ | $0.69 | $4.14 |
 | Qwen3.5 397B Fast | 262K | ❌ | ❌ | $0.69 | $4.14 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.29 | $1.15 |
