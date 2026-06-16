@@ -45,6 +45,19 @@
       "maxTokensField": "max_tokens"
     }
   },
+  "moonshotai/Kimi-K2.7-Code": {
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null
+    },
+    "compat": {
+      "maxTokensField": "max_tokens",
+      "requiresReasoningContentOnAssistantMessages": true
+    }
+  },
   "qwen3.5-397b-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
