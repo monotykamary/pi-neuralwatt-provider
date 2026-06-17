@@ -134,6 +134,26 @@
     }
   },
   {
+    "id": "glm-5.2-flex",
+    "name": "GLM-5.2 (flex)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.45,
+      "output": 4.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  {
     "id": "moonshotai/Kimi-K2.5",
     "name": "Kimi K2.5",
     "reasoning": true,
@@ -272,8 +292,31 @@
     }
   },
   {
-    "id": "moonshotai/Kimi-K2.7-Code",
+    "id": "kimi-k2.7-code",
     "name": "Kimi K2.7 Code",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 262128,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "kimi-k2.7-code-flex",
+    "name": "Kimi K2.7 Code (flex)",
     "reasoning": true,
     "input": [
       "text",

@@ -18,6 +18,15 @@
       "xhigh": "max"
     }
   },
+  "glm-5.2-flex": {
+    "thinkingLevelMap": {
+      "minimal": "minimal",
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": "max"
+    }
+  },
   "moonshotai/Kimi-K2.5": {
     "thinkingLevelMap": {
       "minimal": null,
@@ -54,7 +63,7 @@
       "maxTokensField": "max_tokens"
     }
   },
-  "moonshotai/Kimi-K2.7-Code": {
+  "kimi-k2.7-code": {
     "thinkingLevelMap": {
       "minimal": null,
       "low": "low",
