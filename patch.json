@@ -9,6 +9,15 @@
       "maxTokensField": "max_tokens"
     }
   },
+  "glm-5.2": {
+    "thinkingLevelMap": {
+      "minimal": "minimal",
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": "max"
+    }
+  },
   "moonshotai/Kimi-K2.5": {
     "thinkingLevelMap": {
       "minimal": null,
