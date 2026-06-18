@@ -31,15 +31,21 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 
 | Model | Context | Vision | Reasoning | Input $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|------------|
+| Claude Opus (Cached) | 1.0M | ❌ | ✅ | $0.00 | $0.00 |
+| GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 (flex) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 Fast | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
+| GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
 | GLM-5.2 | 1.0M | ❌ | ✅ | $1.45 | $4.50 |
 | GLM-5.2 (fast) | 1.0M | ❌ | ❌ | $1.45 | $4.50 |
 | GLM-5.2 (flex) | 1.0M | ❌ | ✅ | $1.45 | $4.50 |
+| GLM-5.2 (short-fast) | 200K | ❌ | ❌ | $1.45 | $4.50 |
+| GLM-5.2 (short) | 200K | ❌ | ✅ | $1.45 | $4.50 |
 | GLM-5.2 (test) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | Kimi K2.5 | 262K | ✅ | ✅ | $0.52 | $2.59 |
 | Kimi K2.5 Fast | 262K | ✅ | ❌ | $0.52 | $2.59 |
+| Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | $2.59 |
 | Kimi K2.6 | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.6 (flex) | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.6 Fast | 262K | ✅ | ❌ | $0.69 | $3.22 |
@@ -50,11 +56,6 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | Qwen3.5 397B Fast | 262K | ❌ | ❌ | $0.69 | $4.14 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.29 | $1.15 |
 | Qwen3.6 35B Fast | 131K | ✅ | ❌ | $0.29 | $1.15 |
-| GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
-| GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
-| Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | $2.59 |
-| Claude Opus (Cached) | 1.0M | ❌ | ✅ | $0.00 | $0.00 |
-| GLM-5.2 (short) | 1.0M | ❌ | ✅ | $1.45 | $4.50 |
 
 ## Authentication
 
