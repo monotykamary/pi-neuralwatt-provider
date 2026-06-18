@@ -50,14 +50,9 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | Qwen3.5 397B Fast | 262K | ❌ | ❌ | $0.69 | $4.14 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.29 | $1.15 |
 | Qwen3.6 35B Fast | 131K | ✅ | ❌ | $0.29 | $1.15 |
-| GLM-5.1 Canary | 203K | ❌ | ✅ | $1.10 | $3.60 |
-| GLM-5.1 NVFP4 Canary | 203K | ❌ | ✅ | $1.10 | $3.60 |
-| Kimi K2.6 Canary | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | $2.59 |
-| Kimi K2.6 | 262K | ✅ | ✅ | $0.69 | $3.22 |
-| Qwen3.6 35B (A3B) | 131K | ✅ | ✅ | $0.29 | $1.15 |
 | Claude Opus (Cached) | 1.0M | ❌ | ✅ | $0.00 | $0.00 |
 
 ## Authentication
