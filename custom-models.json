@@ -99,5 +99,25 @@
       "maxTokensField": "max_tokens",
       "requiresReasoningContentOnAssistantMessages": true
     }
+  },
+  {
+    "id": "glm-5.2-short",
+    "name": "GLM-5.2 (short)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.45,
+      "output": 4.5,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
   }
 ]

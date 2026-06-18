@@ -248,14 +248,18 @@ function cleanModelForJson(model) {
 }
 
 /**
- * Clean stale entries from patch.json where the model no longer exists in the API.
+ * Clean stale entries from patch.json where the model no longer exists in the
+ * upstream API AND is not a custom (hidden) model. Patch entries for custom
+ * models are legitimate overrides for models absent from the API, so they
+ * must survive syncs.
+ *
  * Returns the cleaned patch object.
  */
-function cleanStalePatchEntries(patch, upstreamIds) {
-  const stale = Object.keys(patch).filter(id => !upstreamIds.has(id));
+function cleanStalePatchEntries(patch, upstreamIds, customIds) {
+  const stale = Object.keys(patch).filter(id => !upstreamIds.has(id) && !customIds.has(id));
   if (stale.length === 0) return patch;
 
-  console.log(`\nStale patch entries (model no longer in API):`);
+  console.log(`\nStale patch entries (model no longer in API or custom-models.json):`);
   for (const id of stale) {
     console.log(`  - ${id}`);
   }
@@ -317,9 +321,22 @@ async function main() {
       console.log('No patch.json found, skipping overrides');
     }
 
-    // Clean stale entries from patch.json
+    // Load custom models early so patch entries for hidden models (absent from
+    // the API) are preserved during stale cleaning below.
+    let customModels = [];
+    try {
+      customModels = JSON.parse(fs.readFileSync(CUSTOM_MODELS_JSON_PATH, 'utf8'));
+      console.log(`✓ Loaded ${customModels.length} custom model(s) from custom-models.json`);
+    } catch (e) {
+      console.log('No custom-models.json found, skipping custom models');
+    }
+
+    // Clean stale entries from patch.json. A patch entry is stale only if its
+    // model is neither in the upstream API nor in custom-models.json (hidden
+    // models legitimately have patches despite being absent from the API).
     const upstreamIds = new Set(transformedModels.map(m => m.id));
-    patch = cleanStalePatchEntries(patch, upstreamIds);
+    const customIds = new Set(customModels.map(m => m.id));
+    patch = cleanStalePatchEntries(patch, upstreamIds, customIds);
 
     // Log models that still have patch overrides (should be minimal now)
     const remainingPatchCount = Object.keys(patch).length;
@@ -342,16 +359,8 @@ async function main() {
       applyPatchToModel(model, patch[model.id]);
     }
 
-    // ── Load and merge custom models ──────────────────────────────────
-    let customModels = [];
-    try {
-      customModels = JSON.parse(fs.readFileSync(CUSTOM_MODELS_JSON_PATH, 'utf8'));
-      console.log(`✓ Loaded ${customModels.length} custom model(s) from custom-models.json`);
-    } catch (e) {
-      console.log('No custom-models.json found, skipping custom models');
-    }
-
-    // Clean up custom models that now appear in the upstream API
+    // Clean up custom models that now appear in the upstream API.
+    // (custom-models.json was loaded above, before stale-patch cleaning.)
     const duplicates = customModels.filter(m => upstreamIds.has(m.id));
     if (duplicates.length > 0) {
       console.log(`\nFound ${duplicates.length} custom model(s) now available upstream:`);
