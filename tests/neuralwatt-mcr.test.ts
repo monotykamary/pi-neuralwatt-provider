@@ -22,8 +22,10 @@ interface MockPi {
   handlers: Map<string, Handler[]>;
   providers: Record<string, any>;
   registeredProviders: Array<{ name: string; config: any }>;
+  tools: Record<string, any>;
   on: (event: string, handler: Handler) => void;
   registerProvider: (name: string, config: any) => void;
+  registerTool: (tool: any) => void;
   appendEntry: (_type: string, _data: any) => void;
 }
 
@@ -31,10 +33,12 @@ function makeMockPi(): MockPi {
   const handlers = new Map<string, Handler[]>();
   const providers: Record<string, any> = {};
   const registeredProviders: Array<{ name: string; config: any }> = [];
+  const tools: Record<string, any> = {};
   return {
     handlers,
     providers,
     registeredProviders,
+    tools,
     on(event, handler) {
       const list = handlers.get(event) ?? [];
       list.push(handler);
@@ -43,6 +47,9 @@ function makeMockPi(): MockPi {
     registerProvider(name, config) {
       providers[name] = config;
       registeredProviders.push({ name, config });
+    },
+    registerTool(tool) {
+      tools[tool.name] = tool;
     },
     appendEntry() {},
   };

@@ -6,9 +6,10 @@
   },
   "glm-5.2": {
     "thinkingLevelMap": {
-      "minimal": "minimal",
-      "low": "low",
-      "medium": "medium",
+      "off": "minimal",
+      "minimal": null,
+      "low": null,
+      "medium": null,
       "high": "high",
       "xhigh": "max"
     }
@@ -20,18 +21,20 @@
   },
   "glm-5.2-flex": {
     "thinkingLevelMap": {
-      "minimal": "minimal",
-      "low": "low",
-      "medium": "medium",
+      "off": "minimal",
+      "minimal": null,
+      "low": null,
+      "medium": null,
       "high": "high",
       "xhigh": "max"
     }
   },
   "glm-5.2-short": {
     "thinkingLevelMap": {
-      "minimal": "minimal",
-      "low": "low",
-      "medium": "medium",
+      "off": "minimal",
+      "minimal": null,
+      "low": null,
+      "medium": null,
       "high": "high",
       "xhigh": "max"
     }

@@ -58,7 +58,7 @@
  */
 
 import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
-import { streamOpenAICompletions } from "@earendil-works/pi-ai";
+import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-ai";
 import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
@@ -1179,6 +1179,16 @@ export function streamNeuralwatt(
 
   const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || BASE_URL };
 
+  // pi hands the user's thinking selection to streamSimple providers as
+  // `options.reasoning` (a raw ThinkingLevel). The raw streamOpenAICompletions
+  // only reads `options.reasoningEffort`, so we replicate the clamp+convert that
+  // pi-ai's streamSimpleOpenAICompletions wrapper does — otherwise reasoning_effort
+  // never reaches the request body and thinking levels silently do nothing
+  // (off/high/xhigh all vanish from the payload for every Neuralwatt reasoning model).
+  const clampedReasoning = options?.reasoning ? clampThinkingLevel(neuralwattModel, options.reasoning) : undefined;
+  const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
+  const { reasoning: _reasoning, ...streamOptions } = options ?? {};
+
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1194,7 +1204,8 @@ export function streamNeuralwatt(
 
   try {
     const stream = streamOpenAICompletions(neuralwattModel, transformedContext, {
-      ...options,
+      ...streamOptions,
+      reasoningEffort,
       apiKey,
     });
 

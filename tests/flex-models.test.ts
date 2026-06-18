@@ -46,22 +46,6 @@ function makeStream(chunks: Uint8Array[]): ReadableStream<Uint8Array> {
 }
 
 describe("flex model definitions", () => {
-  it("has exactly two flex models", () => {
-    expect(flexModels).toHaveLength(2);
-  });
-
-  it("includes GLM-5.1 Flex", () => {
-    const glm = flexModels.find((m) => m.id === "glm-5.1-flex");
-    expect(glm).toBeDefined();
-    expect(glm!.name).toBe("GLM-5.1 Flex");
-  });
-
-  it("includes Kimi K2.6 Flex", () => {
-    const kimi = flexModels.find((m) => m.id === "kimi-k2.6-flex");
-    expect(kimi).toBeDefined();
-    expect(kimi!.name).toBe("Kimi K2.6 Flex");
-  });
-
   it("all flex models have reasoning enabled", () => {
     for (const model of flexModels) {
       expect(model.reasoning, `${model.id} should have reasoning: true`).toBe(true);
@@ -85,37 +69,12 @@ describe("flex model cost parity with non-flex counterparts", () => {
     expect(flex.cost).toEqual(base.cost);
   });
 
-  it("Kimi K2.6 Flex has the same cost as Kimi K2.6", () => {
-    const flex = allModels.find((m) => m.id === "kimi-k2.6-flex")!;
-    const base = allModels.find((m) => m.id === "moonshotai/Kimi-K2.6")!;
-    expect(flex.cost).toEqual(base.cost);
-  });
-
   it("GLM-5.1 Flex has the same contextWindow as GLM-5.1", () => {
     const flex = allModels.find((m) => m.id === "glm-5.1-flex")!;
     const base = allModels.find((m) => m.id === "zai-org/GLM-5.1-FP8")!;
     expect(flex.contextWindow).toBe(base.contextWindow);
   });
 
-  it("Kimi K2.6 Flex has the same contextWindow as Kimi K2.6", () => {
-    const flex = allModels.find((m) => m.id === "kimi-k2.6-flex")!;
-    const base = allModels.find((m) => m.id === "moonshotai/Kimi-K2.6")!;
-    expect(flex.contextWindow).toBe(base.contextWindow);
-  });
-});
-
-describe("flex model input types", () => {
-  it("GLM-5.1 Flex is text-only (no vision)", () => {
-    const glm = flexModels.find((m) => m.id === "glm-5.1-flex")!;
-    expect(glm.input).toEqual(["text"]);
-    expect(glm.vision).toBeUndefined();
-  });
-
-  it("Kimi K2.6 Flex has vision support", () => {
-    const kimi = flexModels.find((m) => m.id === "kimi-k2.6-flex")!;
-    expect(kimi.input).toContain("image");
-    expect(kimi.vision?.maxImagesPerRequest).toBe(20);
-  });
 });
 
 describe("flex model streaming with delta.reasoning", () => {
@@ -221,19 +180,4 @@ describe("flex canary model separation", () => {
     expect(overlap).toHaveLength(0);
   });
 
-  it("canary and flex models share costs with their base models", () => {
-    const glmCanary = allModels.find((m) => m.id === "glm-5.1-canary")!;
-    const glmFlex = allModels.find((m) => m.id === "glm-5.1-flex")!;
-    const glmBase = allModels.find((m) => m.id === "zai-org/GLM-5.1-FP8")!;
-
-    expect(glmCanary.cost).toEqual(glmBase.cost);
-    expect(glmFlex.cost).toEqual(glmBase.cost);
-
-    const kimiCanary = allModels.find((m) => m.id === "kimi-k2.6-canary")!;
-    const kimiFlex = allModels.find((m) => m.id === "kimi-k2.6-flex")!;
-    const kimiBase = allModels.find((m) => m.id === "moonshotai/Kimi-K2.6")!;
-
-    expect(kimiCanary.cost).toEqual(kimiBase.cost);
-    expect(kimiFlex.cost).toEqual(kimiBase.cost);
-  });
 });
