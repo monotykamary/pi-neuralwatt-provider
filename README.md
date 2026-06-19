@@ -240,6 +240,19 @@ Energy and cost data is persisted per-request as custom session entries. On sess
 - **Branching** — Navigating to a different point in the session tree shows the correct totals for that branch
 - **Forking** — Forked sessions carry their energy history forward
 
+### Per-turn energy event
+
+After every Neuralwatt turn (in the `turn_end` handler, once the SSE tee has drained), the extension emits a `neuralwatt:turn-energy` event on pi's shared event bus so other extensions can surface the energy-billed cost without re-parsing the session. The payload:
+
+| Field           | Type     | Description                                                                         |
+| --------------- | -------- | ----------------------------------------------------------------------------------- |
+| `costUsd`       | `number` | Actual billed cost for this request (USD)                                           |
+| `energyJoules` | `number` | Energy consumed for this request (Joules)                                           |
+| `turnIndex`     | `number \| null` | pi's turn index for correlation. `null` if the event didn't carry one.       |
+
+The event is only emitted for turns with Neuralwatt activity (the `pending*` state is per-request), so non-Neuralwatt turns never produce a spurious zero-cost signal. Consumers should correlate on `turnIndex` and treat a missing/`null` index defensively.
+
+
 ## API Documentation
 
 - Neuralwatt API: `https://api.neuralwatt.com/v1`

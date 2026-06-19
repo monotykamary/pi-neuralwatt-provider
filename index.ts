@@ -1320,7 +1320,7 @@ export default function (pi: ExtensionAPI) {
     ctx.ui.setStatus(STATUS_KEY_MCR, undefined);
   });
 
-  pi.on("turn_end", async (_event, ctx) => {
+  pi.on("turn_end", async (event, ctx) => {
     // Ensure the energy tee reader has finished before committing.
     if (teeReader) {
       try {
@@ -1364,6 +1364,23 @@ export default function (pi: ExtensionAPI) {
       pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;
+
+      // Emit per-turn energy data so other extensions (e.g. pi-tps) can display the
+      // energy-billed cost as a $/M-tokens rate. pi dispatches turn_end handlers
+      // sequentially (awaiting each in registration order), but extension load
+      // order is not guaranteed — pi-tps subscribes to this event at load and
+      // stashes costUsd keyed by turnIndex, so if it's registered after us it
+      // captures this synchronously when its own turn_end runs; if before us,
+      // it misses this one turn and falls back to the list-price rate. No emit
+      // for turns without Neuralwatt activity (pending* is per-request), so
+      // non-Neuralwatt turns never produce a spurious zero-cost signal.
+      const turnIndex = typeof (event as any)?.turnIndex === "number" ? (event as any).turnIndex : null;
+      pi.events?.emit("neuralwatt:turn-energy", {
+        costUsd: pendingCostUsd,
+        energyJoules: pendingEnergyJoules,
+        turnIndex,
+      });
+
       pendingEnergyJoules = 0;
       pendingCostUsd = 0;
       pendingEnergyRaw = null;
