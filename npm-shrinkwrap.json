@@ -1,12 +1,12 @@
 {
   "name": "pi-neuralwatt-provider",
-  "version": "1.1.6",
+  "version": "1.2.1",
   "lockfileVersion": 3,
   "requires": true,
   "packages": {
     "": {
       "name": "pi-neuralwatt-provider",
-      "version": "1.1.6",
+      "version": "1.2.1",
       "license": "MIT",
       "devDependencies": {
         "knip": "6.14.1",
