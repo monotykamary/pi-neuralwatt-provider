@@ -101,7 +101,7 @@ beforeAll(async () => {
   fs.mkdirSync(path.join(tmpHome, ".pi", "agent", "extensions"), {
     recursive: true,
   });
-  const mod = await import("../neuralwatt-mcr.ts");
+  const mod = await import("../chad-mcr-upstream.ts");
   extDefault = mod.default as (pi: MockPi) => void;
 });
 

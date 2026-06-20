@@ -63,15 +63,15 @@ describe("flex model definitions", () => {
 });
 
 describe("flex model cost parity with non-flex counterparts", () => {
-  it("GLM-5.1 Flex has the same cost as GLM-5.1", () => {
-    const flex = allModels.find((m) => m.id === "glm-5.1-flex")!;
-    const base = allModels.find((m) => m.id === "zai-org/GLM-5.1-FP8")!;
+  it("GLM-5.2 Flex has the same cost as GLM-5.2", () => {
+    const flex = allModels.find((m) => m.id === "glm-5.2-flex")!;
+    const base = allModels.find((m) => m.id === "glm-5.2")!;
     expect(flex.cost).toEqual(base.cost);
   });
 
-  it("GLM-5.1 Flex has the same contextWindow as GLM-5.1", () => {
-    const flex = allModels.find((m) => m.id === "glm-5.1-flex")!;
-    const base = allModels.find((m) => m.id === "zai-org/GLM-5.1-FP8")!;
+  it("GLM-5.2 Flex has the same contextWindow as GLM-5.2", () => {
+    const flex = allModels.find((m) => m.id === "glm-5.2-flex")!;
+    const base = allModels.find((m) => m.id === "glm-5.2")!;
     expect(flex.contextWindow).toBe(base.contextWindow);
   });
 
