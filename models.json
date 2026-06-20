@@ -72,8 +72,8 @@
       "cacheRead": 0.3625,
       "cacheWrite": 0
     },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
+    "contextWindow": 199984,
+    "maxTokens": 199984,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
@@ -92,8 +92,8 @@
       "cacheRead": 0.3625,
       "cacheWrite": 0
     },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
+    "contextWindow": 199984,
+    "maxTokens": 199984,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
@@ -112,8 +112,8 @@
       "cacheRead": 0.3625,
       "cacheWrite": 0
     },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
+    "contextWindow": 199984,
+    "maxTokens": 199984,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
@@ -132,8 +132,8 @@
       "cacheRead": 0.3625,
       "cacheWrite": 0
     },
-    "contextWindow": 1048560,
-    "maxTokens": 1048560,
+    "contextWindow": 199984,
+    "maxTokens": 199984,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
