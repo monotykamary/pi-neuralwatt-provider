@@ -1,9 +1,4 @@
 {
-  "glm-5.1-fast": {
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
   "glm-5.2": {
     "thinkingLevelMap": {
       "off": "minimal",
@@ -35,15 +30,6 @@
       "minimal": null,
       "low": null,
       "medium": null,
-      "high": "high",
-      "xhigh": "max"
-    }
-  },
-  "zai-org/GLM-5.1-FP8": {
-    "thinkingLevelMap": {
-      "minimal": "minimal",
-      "low": "low",
-      "medium": "medium",
       "high": "high",
       "xhigh": "max"
     }
