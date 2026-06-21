@@ -45,5 +45,6 @@
       "./index.ts",
       "./neuralwatt-mcr.ts"
     ]
-  }
+  },
+  "packageManager": "pnpm@11.6.0"
 }
