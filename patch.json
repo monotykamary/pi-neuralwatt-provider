@@ -34,24 +34,6 @@
       "xhigh": "max"
     }
   },
-  "moonshotai/Kimi-K2.5": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
-  "kimi-k2.5-fast": {
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
   "kimi-k2.6": {
     "thinkingLevelMap": {
       "minimal": null,

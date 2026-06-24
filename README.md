@@ -38,8 +38,6 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | GLM-5.2 (short, fast) | 200K | ❌ | ❌ | $1.45 | $4.50 |
 | GLM-5.2 (short, flex) | 200K | ❌ | ✅ | $1.45 | $4.50 |
 | GLM-5.2 (short) | 200K | ❌ | ✅ | $1.45 | $4.50 |
-| Kimi K2.5 | 262K | ✅ | ✅ | $0.52 | $2.59 |
-| Kimi K2.5 Fast | 262K | ✅ | ❌ | $0.52 | $2.59 |
 | Kimi K2.6 | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.6 (flex) | 262K | ✅ | ✅ | $0.69 | $3.22 |
 | Kimi K2.6 Fast | 262K | ✅ | ❌ | $0.69 | $3.22 |
