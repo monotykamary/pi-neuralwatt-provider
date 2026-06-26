@@ -8,6 +8,7 @@
 export interface SimpleStreamOptions {
   apiKey?: string;
   reasoning?: string;
+  onPayload?: (params: any, model: any) => any | Promise<any>;
 }
 
 export interface AssistantMessageEventStream {

@@ -81,6 +81,17 @@ interface NeuralwattConfig {
   // When true, hide energy/quota/MCR display if the active model's provider
   // is not "neuralwatt". Prevents stale display after switching providers.
   hideOnOtherProvider: boolean;
+  // Per-model overrides applied ON TOP of patch.json + custom-models.json, keyed
+  // by model id. Lets a user override compat flags (e.g. toggle
+  // chat_template_kwargs) without editing the extension. Deep-merges `compat`
+  // and `thinkingLevelMap`; replaces scalars. See README "Model Overrides".
+  modelOverrides?: Record<string, ModelOverride>;
+}
+
+interface ModelOverride {
+  thinkingLevelMap?: Record<string, string | null>;
+  compat?: Record<string, any>;
+  vision?: { maxImagesPerRequest?: number };
 }
 
 const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "extensions", "neuralwatt.json");
@@ -102,6 +113,7 @@ function loadConfig(): NeuralwattConfig {
       quota: parseDisplayMode(raw.quota, "widget"),
       mcr: parseDisplayMode(raw.mcr, "widget"),
       hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : false,
+      modelOverrides: parseModelOverrides(raw.modelOverrides),
     };
   } catch {
     // Config file missing or invalid — populate with defaults so the user can discover it
@@ -113,6 +125,29 @@ function loadConfig(): NeuralwattConfig {
     }
     return { ...DEFAULT_CONFIG };
   }
+}
+
+// Validate user-supplied modelOverrides from the config file. Non-object / non-string
+// ids are dropped silently so a malformed file doesn't crash model registration.
+function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const result: Record<string, ModelOverride> = {};
+  for (const [id, override] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof id !== "string" || !override || typeof override !== "object" || Array.isArray(override)) continue;
+    const o = override as Record<string, unknown>;
+    const parsed: ModelOverride = {};
+    if (o.thinkingLevelMap && typeof o.thinkingLevelMap === "object") {
+      const m: Record<string, string | null> = {};
+      for (const [k, v] of Object.entries(o.thinkingLevelMap as Record<string, unknown>)) {
+        if (v === null || typeof v === "string") m[k] = v;
+      }
+      if (Object.keys(m).length > 0) parsed.thinkingLevelMap = m;
+    }
+    if (o.compat && typeof o.compat === "object") parsed.compat = o.compat as Record<string, any>;
+    if (o.vision && typeof o.vision === "object") parsed.vision = o.vision as { maxImagesPerRequest?: number };
+    if (Object.keys(parsed).length > 0) result[id] = parsed;
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 let config = loadConfig();
@@ -147,6 +182,17 @@ interface NeuralwattModel {
     supportsReasoningEffort?: boolean;
     requiresAssistantAfterToolResult?: boolean;
     requiresReasoningContentOnAssistantMessages?: boolean;
+    // Raw chat_template_kwargs merged into every chat-completions request via
+    // pi-ai's onPayload hook. Mirrors vLLM's request field of the same name; the
+    // values are template-level flags the model's Jinja chat template reads, so
+    // they're model-family-specific (NOT a generic boolean). Injected alongside
+    // reasoning_effort (not via thinkingFormat: "chat-template" — that branch is
+    // mutually exclusive with the openai reasoning_effort path). Behavioral E2E:
+    //   Kimi K2.6/K2.7  → { "preserve_thinking": true }   (template keeps full reasoning history across turns)
+    //   GLM-5.x family  → { "clear_thinking": false }     (template stops clearing older assistant reasoning)
+    // GLM-5.1 / Qwen3.x expose no family-wide flag; Layer-A replay (the `reasoning`
+    // field, aliased reasoning <-> reasoning_content by the gateway) still applies to all.
+    chatTemplateKwargs?: Record<string, string | number | boolean | null>;
   };
   vision?: {
     maxImagesPerRequest?: number;
@@ -177,11 +223,30 @@ function applyPatch(model: NeuralwattModel, patch: Record<string, any>): Neuralw
   return result;
 }
 
-/** Full pipeline: base → patch → custom → result */
+// Apply a user-supplied modelOverride (from neuralwatt.json) on top of a built
+// model. Same deep-merge semantics as applyPatch for compat/vision/cost, plus
+// thinkingLevelMap (so a user can override a single thinking level without
+// redeclaring the whole map). Scalars are replaced. No reasoning-cleanup
+// (unlike applyPatch) — the user's override is authoritative.
+function applyModelOverride(model: NeuralwattModel, override: ModelOverride): NeuralwattModel {
+  const result = { ...model };
+  const NESTED_KEYS = new Set(["compat", "vision", "cost", "thinkingLevelMap"]);
+  for (const [key, value] of Object.entries(override)) {
+    if (NESTED_KEYS.has(key) && typeof value === "object" && value !== null && typeof (result as any)[key] === "object") {
+      (result as any)[key] = { ...(result as any)[key], ...value };
+    } else {
+      (result as any)[key] = value;
+    }
+  }
+  return result;
+}
+
+/** Full pipeline: base → patch → custom → user modelOverrides → result */
 function buildModels(
   base: NeuralwattModel[],
   custom: NeuralwattModel[],
   patchList: Record<string, any>,
+  overrides: Record<string, ModelOverride> = {},
 ): NeuralwattModel[] {
   const modelMap = new Map<string, NeuralwattModel>();
 
@@ -207,6 +272,17 @@ function buildModels(
       modelMap.set(model.id, applyPatch(model, patchEntry));
     } else {
       modelMap.set(model.id, model);
+    }
+  }
+
+  // User-supplied modelOverrides (from ~/.pi/agent/extensions/neuralwatt.json)
+  // applied LAST so they win over patch.json + custom-models.json. Deep-merges
+  // compat / thinkingLevelMap / vision so a user can toggle a single flag
+  // (e.g. chatTemplateKwargs.preserve_thinking) without redeclaring the rest.
+  for (const [id, override] of Object.entries(overrides)) {
+    const existing = modelMap.get(id);
+    if (existing) {
+      modelMap.set(id, applyModelOverride(existing, override));
     }
   }
 
@@ -1190,6 +1266,39 @@ export function streamNeuralwatt(
   const reasoningEffort = clampedReasoning === "off" ? undefined : clampedReasoning;
   const { reasoning: _reasoning, ...streamOptions } = options ?? {};
 
+  // Preserved thinking (full-history reasoning): when a model opts in via
+  // `compat.chatTemplateKwargs`, inject those chat_template_kwargs into the
+  // request body through pi-ai's onPayload hook. We do this here rather than
+  // via thinkingFormat: "chat-template" because the chat-template branch is
+  // mutually exclusive with the openai `reasoning_effort` path — using
+  // onPayload keeps reasoning_effort (thinking-level control) AND adds the
+  // preserve kwargs. Any caller-supplied onPayload is chained first so it can
+  // inspect/replace the payload; our injection then merges into whatever
+  // chat_template_kwargs the caller (or pi-ai) already set.
+  const userOnPayload = streamOptions.onPayload;
+  const extraKwargs = neuralwattModel.compat?.chatTemplateKwargs;
+  const hasExtraKwargs =
+    !!extraKwargs && typeof extraKwargs === "object" && Object.keys(extraKwargs).length > 0;
+  const onPayload = hasExtraKwargs || userOnPayload
+    ? async (params: any, mdl: any) => {
+      let p = params;
+      if (userOnPayload) {
+        const next = await userOnPayload(p, mdl);
+        if (next !== undefined) p = next;
+      }
+      if (hasExtraKwargs) {
+        p = {
+          ...p,
+          chat_template_kwargs: {
+            ...(p?.chat_template_kwargs ?? {}),
+            ...extraKwargs,
+          },
+        };
+      }
+      return p;
+    }
+    : undefined;
+
   const originalFetch = globalThis.fetch;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -1208,6 +1317,7 @@ export function streamNeuralwatt(
       ...streamOptions,
       reasoningEffort,
       apiKey,
+      ...(onPayload ? { onPayload } : {}),
     });
 
     const originalEnd = stream.end.bind(stream);
@@ -1237,7 +1347,7 @@ export function getStaleModels(): NeuralwattModel[] {
     const custom = customModelsData as NeuralwattModel[];
     const patches = patchesData as Record<string, any>;
     const staleBase = loadStaleModels(embedded);
-    _staleModelsCache = buildModels(staleBase, custom, patches);
+    _staleModelsCache = buildModels(staleBase, custom, patches, config.modelOverrides);
   }
   return _staleModelsCache;
 }
@@ -1273,6 +1383,10 @@ export default function (pi: ExtensionAPI) {
     config = loadConfig();
     resetSessionState();
     cachedQuota = null;
+    // Bust the stale-models cache so a user-edited neuralwatt.json (e.g. toggled
+    // modelOverrides) takes effect this session instead of serving the
+    // module-load snapshot until the background revalidate swaps it in.
+    _staleModelsCache = null;
     replayEnergyEvents(ctx);
     // Re-register on session_start to guarantee our provider identity
     // (api, streamSimple, headers) wins over any load-time registration
@@ -1294,7 +1408,7 @@ export default function (pi: ExtensionAPI) {
       }
       revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
         if (freshBase && !signal.aborted) {
-          pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(freshBase, customModels, patches)));
+          pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(freshBase, customModels, patches, config.modelOverrides)));
         }
       });
     });

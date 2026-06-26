@@ -135,12 +135,19 @@ pi
 
 ### Compat Settings
 
-Neuralwatt's API now provides compatibility and capability metadata (pricing, reasoning, vision, developer_role, reasoning_effort, max_images) directly in the `/v1/models` response. The `update-models.js` script reads these and writes them into `models.json`. Only genuinely incorrect API data needs a manual override in `patch.json`.
+Neuralwatt's API provides compatibility and capability metadata (pricing, reasoning, vision, `developer_role`, `reasoning_effort`, `max_images`) directly in the `/v1/models` response. The `update-models.js` script reads these and writes them into `models.json`. Only genuinely incorrect API data needs a manual override in `patch.json`.
 
-Currently configured compat settings (all sourced from the API):
+Currently configured compat settings:
 
 - **`supportsDeveloperRole: false`** — All models. vLLM doesn't support the `developer` role; pi sends system prompts as `system` messages instead.
-- **`supportsReasoningEffort: true`** — GPT-OSS. Sends `reasoning_effort` parameter (maps to pi's `/reasoning` command levels).
+- **`supportsReasoningEffort: true`** — GLM-5.2. Sends the `reasoning_effort` parameter (maps pi's `/reasoning` levels onto GLM-5.2's native `high`/`max`/`minimal` via `thinkingLevelMap`).
+- **`requiresReasoningContentOnAssistantMessages: true`** — Kimi K2.6/K2.7 reasoning variants. Pi-ai replays the model's prior-turn `reasoning` field on every assistant message so the model can continue its chain-of-thought across turns. All Neuralwatt reasoning models get this Layer-A replay automatically (the gateway aliases `reasoning` ↔ `reasoning_content`); this flag adds an empty `reasoning_content` scaffold for turns with no thinking block.
+- **`chatTemplateKwargs`** — Raw `chat_template_kwargs` merged into every request via pi-ai's `onPayload` hook, mirroring vLLM's request field of the same name. Used to opt reasoning models into **full-history reasoning preservation** (vLLM's Jinja templates otherwise trim older assistant reasoning in alternating chat). The flags are template-level and family-specific — NOT a generic boolean:
+  - **Kimi K2.6 / K2.7** → `{ "preserve_thinking": true }` — keeps the full reasoning history across turns (doc-backed; behavioral E2E: 0/6 → 6/6 recall).
+  - **GLM-5.2 family** → `{ "clear_thinking": false }` — stops the template clearing older reasoning (functional: 1/4 → 4/4 recall, confirmed family-wide).
+  - **GLM-5.1 / Qwen3.x / non-reasoning `-fast`** — no kwarg (their templates expose no flag; they rely on Layer-A replay only).
+
+  These are injected alongside `reasoning_effort` (NOT via `thinkingFormat: "chat-template"`, which would displace the OpenAI `reasoning_effort` path) so thinking-level control and full-history preservation coexist.
 
 ### Custom Stream Handler
 
@@ -178,6 +185,8 @@ For reasoning models, control thinking depth:
 
 Values: `none`, `low`, `medium`, `high`
 
+Full-history reasoning preservation is **on by default** for Kimi K2.6/K2.7 and the GLM-5.2 family (see [Compat Settings](#compat-settings)). Override it per-model via [Model Overrides](#model-overrides).
+
 ## Display Configuration
 
 Energy and quota are independently configurable. Create `~/.pi/agent/extensions/neuralwatt.json`:
@@ -210,6 +219,29 @@ The file is auto-populated with defaults on first run.
   "quota": "off"
 }
 ```
+
+### Model Overrides
+
+`modelOverrides` lets you override compat flags and other model properties per model id, **on top of** `patch.json` + `custom-models.json`, without editing the extension. Keyed by model id; `compat` and `thinkingLevelMap` are deep-merged (toggle one flag without redeclaring the rest), scalars are replaced. Applied at session start, so edits take effect on the next `pi` session.
+
+```jsonc
+{
+  "energy": "widget",
+  "quota": "widget",
+  "mcr": "widget",
+  "hideOnOtherProvider": false,
+  "modelOverrides": {
+    // Disable full-history reasoning for kimi-k2.6 (e.g. to save tokens):
+    "kimi-k2.6":      { "compat": { "chatTemplateKwargs": { "preserve_thinking": false } } },
+    // Override a single thinking level without redeclaring the map:
+    "glm-5.2":        { "thinkingLevelMap": { "high": "max" }, "compat": { "chatTemplateKwargs": { "clear_thinking": true } } },
+    // Force a smaller image cap:
+    "kimi-k2.7-code": { "vision": { "maxImagesPerRequest": 4 } }
+  }
+}
+```
+
+The full set of overridable fields matches the model schema (`compat`, `thinkingLevelMap`, `vision`, `cost`, `contextWindow`, `maxTokens`, `reasoning`, `input`). See [Compat Settings](#compat-settings) for the catalog of compat flags and what `chatTemplateKwargs` values mean per family.
 
 ## Energy Reporting
 

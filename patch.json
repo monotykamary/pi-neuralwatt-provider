@@ -7,6 +7,11 @@
       "medium": null,
       "high": "high",
       "xhigh": "max"
+    },
+    "compat": {
+      "chatTemplateKwargs": {
+        "clear_thinking": false
+      }
     }
   },
   "glm-5.2-fast": {
@@ -22,6 +27,11 @@
       "medium": null,
       "high": "high",
       "xhigh": "max"
+    },
+    "compat": {
+      "chatTemplateKwargs": {
+        "clear_thinking": false
+      }
     }
   },
   "glm-5.2-short": {
@@ -32,6 +42,18 @@
       "medium": null,
       "high": "high",
       "xhigh": "max"
+    },
+    "compat": {
+      "chatTemplateKwargs": {
+        "clear_thinking": false
+      }
+    }
+  },
+  "glm-5.2-short-flex": {
+    "compat": {
+      "chatTemplateKwargs": {
+        "clear_thinking": false
+      }
     }
   },
   "kimi-k2.6": {
@@ -44,12 +66,23 @@
     },
     "compat": {
       "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
+      "requiresReasoningContentOnAssistantMessages": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
     }
   },
   "kimi-k2.6-fast": {
     "compat": {
       "maxTokensField": "max_tokens"
+    }
+  },
+  "kimi-k2.6-flex": {
+    "compat": {
+      "requiresReasoningContentOnAssistantMessages": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
     }
   },
   "kimi-k2.7-code": {
@@ -62,7 +95,26 @@
     },
     "compat": {
       "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
+      "requiresReasoningContentOnAssistantMessages": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
+    }
+  },
+  "kimi-k2.7-code-flex": {
+    "compat": {
+      "requiresReasoningContentOnAssistantMessages": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
+    }
+  },
+  "neuralwatt/kimi-k2.6-long": {
+    "compat": {
+      "requiresReasoningContentOnAssistantMessages": true,
+      "chatTemplateKwargs": {
+        "preserve_thinking": true
+      }
     }
   },
   "qwen3.5-397b-fast": {
