@@ -416,9 +416,20 @@ function mergeWithEmbedded(liveModels: NeuralwattModel[], embeddedModels: Neural
     const embedded = embeddedMap.get(liveModel.id);
     seen.add(liveModel.id);
     if (embedded) {
+      // Self-heal: live API pricing is authoritative field-by-field. Prefer the
+      // live cost when the API reports it (non-zero); fall back to embedded when
+      // the API is silent (0) so curated cacheRead/cacheWrite isn't clobbered and
+      // providers whose /models endpoint exposes no pricing keep their curated
+      // cost. Curation (reasoning/input/compat/name) still wins via ...embedded.
       result.push({
         ...liveModel,
         ...embedded,
+        cost: {
+          input: liveModel.cost.input || embedded.cost.input,
+          output: liveModel.cost.output || embedded.cost.output,
+          cacheRead: liveModel.cost.cacheRead || embedded.cost.cacheRead,
+          cacheWrite: liveModel.cost.cacheWrite || embedded.cost.cacheWrite,
+        },
         contextWindow: liveModel.contextWindow || embedded.contextWindow,
       });
     } else {
