@@ -61,13 +61,12 @@ import type { SimpleStreamOptions } from "@earendil-works/pi-ai";
 import { clampThinkingLevel } from "@earendil-works/pi-ai";
 import { streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
 import type { AssistantMessageEventStream } from "@earendil-works/pi-ai";
-import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchesData from "./patch.json" with { type: "json" };
 import { transformContextForImageLimit } from "./transform";
 import fs from "fs";
-import os from "os";
 import path from "path";
 
 // ─── Display Configuration ────────────────────────────────────────────────────
@@ -94,7 +93,7 @@ interface ModelOverride {
   vision?: { maxImagesPerRequest?: number };
 }
 
-const CONFIG_PATH = path.join(os.homedir(), ".pi", "agent", "extensions", "neuralwatt.json");
+const CONFIG_PATH = path.join(getAgentDir(), "extensions", "neuralwatt.json");
 
 const VALID_DISPLAY_MODES = new Set<string>(["widget", "statusbar", "off"]);
 
@@ -319,7 +318,7 @@ function buildModels(
 const PROVIDER_ID = "neuralwatt";
 export const BASE_URL = "https://api.neuralwatt.com/v1";
 const MODELS_URL = `${BASE_URL}/models`;
-const CACHE_DIR = path.join(os.homedir(), ".pi", "agent", "cache");
+const CACHE_DIR = path.join(getAgentDir(), "cache");
 const CACHE_PATH = path.join(CACHE_DIR, `${PROVIDER_ID}-models.json`);
 const LIVE_FETCH_TIMEOUT_MS = 8000;
 

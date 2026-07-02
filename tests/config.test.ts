@@ -1,14 +1,13 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import fs from "fs";
-import os from "os";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import path from "path";
 
 // We test the config parsing by importing the module's loadConfig indirectly.
 // Since loadConfig reads from the filesystem at import time and on session_start,
 // we test the parseDisplayMode logic and the config file loading path directly.
 
-const CONFIG_DIR = path.join(os.homedir(), ".pi", "agent", "extensions");
-const CONFIG_PATH = path.join(CONFIG_DIR, "neuralwatt.json");
+const CONFIG_PATH = path.join(getAgentDir(), "extensions", "neuralwatt.json");
 
 // Replicate the parsing logic inline to test it without module-level side effects.
 // The real code under test is in index.ts — these unit tests validate the
