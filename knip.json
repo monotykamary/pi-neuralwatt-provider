@@ -2,5 +2,5 @@
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "entry": ["scripts/*.mjs", "scripts/*.js", "tests/*.test.ts"],
   "ignoreExportsUsedInFile": true,
-  "ignoreDependencies": ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent"]
+  "ignoreDependencies": ["@earendil-works/pi-ai", "@earendil-works/pi-coding-agent", "@earendil-works/pi-tui"]
 }

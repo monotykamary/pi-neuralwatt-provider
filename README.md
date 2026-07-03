@@ -243,6 +243,17 @@ The file is auto-populated with defaults on first run.
 
 The full set of overridable fields matches the model schema (`compat`, `thinkingLevelMap`, `vision`, `cost`, `contextWindow`, `maxTokens`, `reasoning`, `input`). See [Compat Settings](#compat-settings) for the catalog of compat flags and what `chatTemplateKwargs` values mean per family.
 
+### Settings UI
+
+`/neuralwatt-settings` opens an interactive settings panel (mirrors pi core's `/settings` — bordered `SettingsList`, Esc to go back) to configure Neuralwatt without editing JSON by hand:
+
+- **Preserved thinking** (nested submenu, one row per model) — toggles `clear_thinking` (GLM-5.2 family) / `preserve_thinking` (Kimi K2.6/K2.7) in `modelOverrides` between **Preserve Thinking** (keep full reasoning history across turns; the default, `clear_thinking: false`) and **Clear Thinking** (let the template drop older reasoning; saves tokens, but can degrade multi-turn recall / cause overthinking).
+- **Energy / Quota / MCR display** (`widget` / `statusbar` / `off`) and **Hide on other provider** — the same fields as [Display Configuration](#display-configuration), editable live.
+
+Changes write to `~/.pi/agent/extensions/neuralwatt.json` (raw read-modify-write, so unrelated fields survive), refresh the in-memory config, and re-register the provider, so they take effect immediately — no restart needed.
+
+When you switch to — or start pi on — a Neuralwatt model that carries a preserved-thinking flag (e.g. the GLM-5.2 family, GLM-5.1, Kimi K2.6/K2.7), an info notification reports the state and how to change it, e.g. `Preserved thinking ON for glm-5.2 (clear_thinking: false) — suited for coding, but not for prose. Open /neuralwatt-settings to change.` (OFF reads `... reasoning trimmed each turn (lighter; better for prose) ...`). It's an ordinary info notification (not a warning), so it doesn't paint bright yellow.
+
 ## Energy Reporting
 
 Neuralwatt provides real-time energy consumption data with every API response. This extension captures it and displays a running total in a dedicated status widget between the editor and the pi footer:

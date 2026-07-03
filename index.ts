@@ -151,6 +151,27 @@ function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | unde
 
 let config = loadConfig();
 
+// Read-modify-write the raw config JSON without parsing/validating, so unknown
+// fields a user added (or other modelOverride fields) survive a settings-UI write.
+// `loadConfig()` (validated) is still called after writing to refresh the in-memory
+// `config` the runtime uses.
+function readRawNeuralwattConfig(): Record<string, any> {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
+  } catch {
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
+function writeRawNeuralwattConfig(raw: Record<string, any>): void {
+  try {
+    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2) + "\n");
+  } catch {
+    // Write failure is non-fatal — the in-memory refresh still applies.
+  }
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NeuralwattModel {
@@ -1383,6 +1404,31 @@ export default function (pi: ExtensionAPI) {
   const customModels = customModelsData as NeuralwattModel[];
   const patches = patchesData as Record<string, any>;
 
+  // Deferred model_select notify timer — see the model_select handler. Cleared on
+  // rapid re-switch and on session_shutdown so only the latest switch notifies.
+  let modelSelectNotifyTimer: ReturnType<typeof setTimeout> | null = null;
+  const MODEL_SELECT_NOTIFY_DELAY_MS = 250;
+
+  // Notify preserved-thinking state for a preserve-flag model. Computed from the
+  // build pipeline (config as source of truth, not event.model.compat), deferred
+  // so pi core's (and other extensions') notifications land first, and cancelled
+  // on re-switch/shutdown so only the latest shows. Always level "info" (not a
+  // warning) — the text conveys the coding/prose tradeoff.
+  function notifyPreservedThinkingFor(model: any, ctx: any): void {
+    if (!model || model.provider !== PROVIDER_ID) return;
+    const entry = collectPreserveState().find((e: any) => e.id === model.id);
+    if (!entry) return;
+    const flagValue = entry.flag === "clear_thinking" ? !entry.preserved : entry.preserved;
+    const msg = entry.preserved
+      ? `Preserved thinking ON for ${entry.name} (${entry.flag}: ${flagValue}) — suited for coding, but not for prose. Open /neuralwatt-settings to change.`
+      : `Preserved thinking OFF for ${entry.name} (${entry.flag}: ${flagValue}) — reasoning trimmed each turn (lighter; better for prose). Open /neuralwatt-settings to change.`;
+    if (modelSelectNotifyTimer) clearTimeout(modelSelectNotifyTimer);
+    modelSelectNotifyTimer = setTimeout(() => {
+      modelSelectNotifyTimer = null;
+      try { ctx.ui.notify(msg, "info"); } catch { /* notify is a no-op without a UI runner */ }
+    }, MODEL_SELECT_NOTIFY_DELAY_MS);
+  }
+
   pi.registerProvider("neuralwatt", makeProviderConfig());
 
   // Revalidate in background on session_start
@@ -1404,6 +1450,9 @@ export default function (pi: ExtensionAPI) {
     // registerProvider replaces the entire entry, so this is idempotent.
     pi.registerProvider("neuralwatt", makeProviderConfig());
     updateEnergyStatus(ctx);
+    // Show the preserved-thinking notification on first load / resume if the
+    // active model carries a preserve flag (model_select may not fire on startup).
+    notifyPreservedThinkingFor(ctx.model, ctx);
     resolveApiKey(ctx.modelRegistry).then(() => {
       // Pre-fetch quota eagerly so it's cached and ready to display as
       // soon as the first turn completes (updateEnergyStatus gates display
@@ -1437,6 +1486,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async (_event, ctx) => {
     revalidateAbort?.abort();
+    if (modelSelectNotifyTimer) { clearTimeout(modelSelectNotifyTimer); modelSelectNotifyTimer = null; }
     cachedQuota = null;
     // Clear any status bar entries from energy/quota/MCR display modes.
     // (widget cleanup is handled by the extension runtime teardown)
@@ -1538,8 +1588,169 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // Re-evaluate display when the active model changes (for hideOnOtherProvider)
-  pi.on("model_select", async (_event, ctx) => {
+  // ─── /neuralwatt-settings: settings UI (mirrors pi core /settings) ──────────
+  // Opens a SettingsList (lazy-imported from pi-tui) via ctx.ui.custom(). Toggles
+  // write to ~/.pi/agent/extensions/neuralwatt.json (raw read-modify-write so
+  // unrelated fields survive), refresh the in-memory config, bust the stale-model
+  // cache, and re-register the provider so the change takes effect immediately.
+  function collectPreserveState(): Array<{ id: string; name: string; flag: "clear_thinking" | "preserve_thinking"; preserved: boolean }> {
+    const resolved = buildModels(loadStaleModels(embeddedModels), customModels, patches, config.modelOverrides);
+    const out: Array<{ id: string; name: string; flag: "clear_thinking" | "preserve_thinking"; preserved: boolean }> = [];
+    for (const m of resolved) {
+      const kwargs = (m as any).compat?.chatTemplateKwargs;
+      if (!kwargs || typeof kwargs !== "object") continue;
+      if (typeof kwargs.clear_thinking === "boolean") {
+        out.push({ id: m.id, name: (m as any).name || m.id, flag: "clear_thinking", preserved: kwargs.clear_thinking === false });
+      } else if (typeof kwargs.preserve_thinking === "boolean") {
+        out.push({ id: m.id, name: (m as any).name || m.id, flag: "preserve_thinking", preserved: kwargs.preserve_thinking === true });
+      }
+    }
+    return out;
+  }
+
+  pi.registerCommand("neuralwatt-settings", {
+    description: "Configure Neuralwatt: preserved thinking per model + energy/quota/MCR display",
+    async handler(_args, ctx) {
+      if (ctx.mode !== "tui") {
+        ctx.ui.notify("/neuralwatt-settings requires TUI mode.", "error");
+        return;
+      }
+      const { SettingsList, Container } = await import("@earendil-works/pi-tui");
+      const { getSettingsListTheme, DynamicBorder } = await import("@earendil-works/pi-coding-agent");
+
+      await ctx.ui.custom((_tui, theme, _kb, done) => {
+        const border = () => new DynamicBorder((s: string) => theme.fg("border", s));
+        // SettingsList left-aligns the value column after the widest label (capped
+        // at 30 cols). A label wider than 30 shifts that row's value out of
+        // alignment, so cap model-name labels.
+        const truncateLabel = (s: string) => (s.length > 30 ? s.slice(0, 27) + "..." : s);
+
+        const items: any[] = [
+          {
+            id: "preserved-thinking",
+            label: "Preserved thinking",
+            description: "Per-model Preserve Thinking / Clear Thinking (full-history reasoning). Preserve Thinking keeps all turns' reasoning; Clear Thinking lets the template drop older reasoning (saves tokens, can hurt multi-turn recall / cause overthinking).",
+            currentValue: "configure",
+            submenu: (_currentValue: string, subDone: (v?: string) => void) => {
+              // Re-read state on each open so toggles from a previous visit (which
+              // wrote neuralwatt.json + refreshed config) are reflected — a snapshot
+              // captured at panel-open time would show stale values after a toggle.
+              const fresh = collectPreserveState();
+              const subItems = fresh.map((e) => ({
+                id: `preserve:${e.id}`,
+                label: truncateLabel(e.name),
+                description: `${e.id} — Preserve Thinking keeps full reasoning history across turns; Clear Thinking lets the template drop older reasoning (saves tokens, can hurt multi-turn recall / cause overthinking).`,
+                currentValue: e.preserved ? "Preserve Thinking" : "Clear Thinking",
+                values: ["Preserve Thinking", "Clear Thinking"],
+              }));
+              const subList = new SettingsList(
+                subItems,
+                Math.min(subItems.length + 2, 15),
+                getSettingsListTheme(),
+                (id: string, newValue: string) => {
+                  const modelId = id.slice("preserve:".length);
+                  const entry = fresh.find((p) => p.id === modelId);
+                  if (!entry) return;
+                  const preservedOn = newValue === "Preserve Thinking";
+                  const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
+                  const raw = readRawNeuralwattConfig();
+                  const overrides = raw.modelOverrides ?? (raw.modelOverrides = {});
+                  const ov = overrides[modelId] ?? (overrides[modelId] = {});
+                  const compat = ov.compat ?? (ov.compat = {});
+                  const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
+                  kwargs[entry.flag] = flagValue;
+                  writeRawNeuralwattConfig(raw);
+                  config = loadConfig();
+                  _staleModelsCache = null;
+                  pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(loadStaleModels(embeddedModels), customModels, patches, config.modelOverrides)));
+                  ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} — takes effect now.`, "info");
+                },
+                () => subDone(),
+                { enableSearch: true },
+              );
+              // The outer container's borders already frame the panel; return the
+              // list directly so we don't render a second border pair.
+              return subList;
+            },
+          },
+          {
+            id: "energy",
+            label: "Energy display",
+            description: "Where energy/cost is shown: dedicated below-editor line, status bar, or hidden",
+            currentValue: config.energy,
+            values: ["widget", "statusbar", "off"],
+          },
+          {
+            id: "quota",
+            label: "Quota display",
+            description: "Where plan/quota is shown. 'off' also skips the /v1/quota fetch",
+            currentValue: config.quota,
+            values: ["widget", "statusbar", "off"],
+          },
+          {
+            id: "mcr",
+            label: "MCR display",
+            description: "Where MCR (context-reuse) info is shown",
+            currentValue: config.mcr,
+            values: ["widget", "statusbar", "off"],
+          },
+          {
+            id: "hideOnOtherProvider",
+            label: "Hide on other provider",
+            description: "Hide all Neuralwatt display when a non-Neuralwatt model is active",
+            currentValue: config.hideOnOtherProvider ? "true" : "false",
+            values: ["true", "false"],
+          },
+        ];
+
+        const container = new Container();
+        container.addChild(border());
+
+        const settingsList = new SettingsList(
+          items,
+          Math.min(items.length + 2, 15),
+          getSettingsListTheme(),
+          (id: string, newValue: string) => {
+            if (id === "energy" || id === "quota" || id === "mcr") {
+              const raw = readRawNeuralwattConfig();
+              raw[id] = newValue;
+              writeRawNeuralwattConfig(raw);
+              config = loadConfig();
+              updateEnergyStatus(ctx);
+            } else if (id === "hideOnOtherProvider") {
+              const raw = readRawNeuralwattConfig();
+              raw.hideOnOtherProvider = newValue === "true";
+              writeRawNeuralwattConfig(raw);
+              config = loadConfig();
+              updateEnergyStatus(ctx);
+            }
+          },
+          () => done(undefined),
+          { enableSearch: true },
+        );
+        container.addChild(settingsList);
+        container.addChild(border());
+
+        return {
+          render(width: number) {
+            return container.render(width);
+          },
+          invalidate() {
+            container.invalidate();
+          },
+          handleInput(data: string) {
+            settingsList.handleInput?.(data);
+          },
+        };
+      });
+    },
+  });
+
+  // Re-evaluate display when the active model changes (for hideOnOtherProvider),
+  // and notify preserved-thinking state for models carrying a preserve flag
+  // (e.g. GLM-5.2 family, Kimi K2.6/K2.7).
+  pi.on("model_select", async (event, ctx) => {
     updateEnergyStatus(ctx);
+    notifyPreservedThinkingFor(event.model ?? ctx.model, ctx);
   });
 }
