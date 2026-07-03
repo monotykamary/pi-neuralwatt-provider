@@ -130,6 +130,30 @@ describe("GLM-5.2 family patch.json thinkingLevelMap", () => {
   });
 });
 
+describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
+  const patches = patchesData as Record<string, any>;
+  const expectedMap = {
+    minimal: null,
+    low: "low",
+    medium: "medium",
+    high: "high",
+    xhigh: "high",
+  };
+
+  for (const id of ["kimi-k2.7-code", "kimi-k2.7-code-flex"]) {
+    it(`${id} supports xhigh (mapped to high), matching Makora's K2.7 config`, () => {
+      expect(patches[id]?.thinkingLevelMap).toEqual(expectedMap);
+    });
+  }
+
+  it("kimi-k2.7-code xhigh maps to high (not null/dropped)", () => {
+    // Before this patch xhigh was null (clamped away). Makora's K2.7 supports
+    // xhigh → high; this mirrors that so /reasoning xhigh is honored as a real
+    // level rather than silently downgraded to high via clamp.
+    expect(patches["kimi-k2.7-code"]?.thinkingLevelMap?.xhigh).toBe("high");
+  });
+});
+
 describe("chatTemplateKwargs onPayload injection", () => {
   let originalFetch: typeof globalThis.fetch;
 

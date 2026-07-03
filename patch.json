@@ -91,7 +91,7 @@
       "low": "low",
       "medium": "medium",
       "high": "high",
-      "xhigh": null
+      "xhigh": "high"
     },
     "compat": {
       "maxTokensField": "max_tokens",
@@ -102,6 +102,13 @@
     }
   },
   "kimi-k2.7-code-flex": {
+    "thinkingLevelMap": {
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": "high"
+    },
     "compat": {
       "requiresReasoningContentOnAssistantMessages": true,
       "chatTemplateKwargs": {
