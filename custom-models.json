@@ -78,26 +78,5 @@
     "vision": {
       "maxImagesPerRequest": 20
     }
-  },
-  {
-    "id": "neuralwatt/claude-opus-cached",
-    "name": "Claude Opus (Cached)",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0,
-      "output": 0,
-      "cacheRead": 0,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1000000,
-    "maxTokens": 32000,
-    "compat": {
-      "supportsDeveloperRole": false,
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
-    }
   }
 ]
