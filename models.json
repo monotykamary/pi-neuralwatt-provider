@@ -40,9 +40,69 @@
     }
   },
   {
+    "id": "glm-5.2-flex",
+    "name": "GLM-5.2 (flex)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.45,
+      "output": 4.5,
+      "cacheRead": 0.3625,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  {
+    "id": "glm-5.2-short-fast-flex",
+    "name": "GLM-5.2 (short, fast, flex)",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.45,
+      "output": 4.5,
+      "cacheRead": 0.3625,
+      "cacheWrite": 0
+    },
+    "contextWindow": 199984,
+    "maxTokens": 199984,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  {
     "id": "glm-5.2-short-fast",
     "name": "GLM-5.2 (short, fast)",
     "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.45,
+      "output": 4.5,
+      "cacheRead": 0.3625,
+      "cacheWrite": 0
+    },
+    "contextWindow": 199984,
+    "maxTokens": 199984,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  {
+    "id": "glm-5.2-short-flex",
+    "name": "GLM-5.2 (short, flex)",
+    "reasoning": true,
     "input": [
       "text"
     ],
@@ -103,6 +163,29 @@
     }
   },
   {
+    "id": "kimi-k2.6-flex",
+    "name": "Kimi K2.6 (flex)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 3.22,
+      "cacheRead": 0.1725,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 262128,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
     "id": "kimi-k2.6-fast",
     "name": "Kimi K2.6 Fast",
     "reasoning": false,
@@ -118,6 +201,29 @@
     },
     "contextWindow": 262128,
     "maxTokens": 262128,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "neuralwatt/kimi-k2.6-long",
+    "name": "Kimi K2.6 Long (Virtual Context)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.69,
+      "output": 3.22,
+      "cacheRead": 0.1725,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
     "compat": {
       "supportsDeveloperRole": false
     },
@@ -146,6 +252,48 @@
     },
     "vision": {
       "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "kimi-k2.7-code-flex",
+    "name": "Kimi K2.7 Code (flex)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.95,
+      "output": 4,
+      "cacheRead": 0.2375,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 262128,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    }
+  },
+  {
+    "id": "nemotron-3-nano-mcr",
+    "name": "Nemotron-3-Nano (MCR)",
+    "reasoning": false,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0,
+      "output": 0,
+      "cacheRead": 0,
+      "cacheWrite": 0
+    },
+    "contextWindow": 65520,
+    "maxTokens": 65520,
+    "compat": {
+      "supportsDeveloperRole": false
     }
   },
   {
