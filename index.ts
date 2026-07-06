@@ -35,6 +35,7 @@
  *     "energy": "widget",         // "widget" | "statusbar" | "off"
  *     "quota": "widget",          // "widget" | "statusbar" | "off"
  *     "mcr": "widget",            // "widget" | "statusbar" | "off"
+ *     "carbon": "widget",         // "widget" | "statusbar" | "off"
  *     "hideOnOtherProvider": false  // hide display when a non-Neuralwatt model is active
  *   }
  *
@@ -44,6 +45,11 @@
  *   - hideOnOtherProvider: when true, auto-hide all Neuralwatt display if the
  *     active model's provider is not "neuralwatt". The display returns when you
  *     switch back to a Neuralwatt model. Default: false.
+ *   - carbon: session CO₂ (🌱, energy line) + the fleet grid/region badge
+ *     (quota line). The badge shows the latest request's electricity grid
+ *     (e.g. 🇺🇸 PJM 416), compressing flag → intensity → BA tag as space
+ *     tightens; a "~" marks intensities from a fallback carbon_source.
+ *     Default: "widget".
  *
  * Neuralwatt Features:
  *   - OpenAI-compatible API (https://api.neuralwatt.com/v1)
@@ -53,6 +59,7 @@
  *   - Streaming support
  *   - Energy reporting per-request (Joules, kWh, watts, duration)
  *   - Request cost reporting (USD)
+ *   - Carbon/grid reporting per-request (CO₂e, grid_id, grid intensity)
  *
  * @see https://neuralwatt.com
  */
@@ -77,6 +84,10 @@ interface NeuralwattConfig {
   energy: DisplayMode;
   quota: DisplayMode;
   mcr: DisplayMode;
+  // Where carbon emissions (session CO₂) + the fleet grid/region badge are
+  // shown. CO₂ augments the energy line; the grid badge augments the quota
+  // line. "off" hides both. See README "Display Configuration".
+  carbon: DisplayMode;
   // When true, hide energy/quota/MCR display if the active model's provider
   // is not "neuralwatt". Prevents stale display after switching providers.
   hideOnOtherProvider: boolean;
@@ -102,7 +113,7 @@ function parseDisplayMode(value: unknown, fallback: DisplayMode): DisplayMode {
   return fallback;
 }
 
-const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", hideOnOtherProvider: false };
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: false };
 
 function loadConfig(): NeuralwattConfig {
   try {
@@ -111,6 +122,7 @@ function loadConfig(): NeuralwattConfig {
       energy: parseDisplayMode(raw.energy, "widget"),
       quota: parseDisplayMode(raw.quota, "widget"),
       mcr: parseDisplayMode(raw.mcr, "widget"),
+      carbon: parseDisplayMode(raw.carbon, "widget"),
       hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : false,
       modelOverrides: parseModelOverrides(raw.modelOverrides),
     };
@@ -522,6 +534,13 @@ let sessionMcrFp: string | null = null;
 let sessionSafeDropBefore = 0;
 let sessionApcHitRate: number | undefined;
 let sessionCompactRatio: number | undefined;
+// Carbon/grid (from sse_energy_raw). Carbon is cumulative (like energy);
+// grid_id/intensity/carbon_source are latest-wins (like MCR fp) — the fleet
+// routes per-request, so the most recent request's grid is the "current" one.
+let sessionCarbonGrams = 0;
+let sessionGridId: string | null = null;
+let sessionGridIntensity: number | undefined;
+let sessionGridCarbonSource: string | undefined;
 let pendingEnergyJoules = 0;
 let pendingCostUsd = 0;
 let pendingEnergyRaw: Record<string, unknown> | null = null;
@@ -585,6 +604,10 @@ export function resetSessionState() {
   sessionSafeDropBefore = 0;
   sessionApcHitRate = undefined;
   sessionCompactRatio = undefined;
+  sessionCarbonGrams = 0;
+  sessionGridId = null;
+  sessionGridIntensity = undefined;
+  sessionGridCarbonSource = undefined;
   pendingEnergyJoules = 0;
   pendingCostUsd = 0;
   pendingEnergyRaw = null;
@@ -606,6 +629,10 @@ function replayEnergyEvents(ctx: any): void {
   sessionSafeDropBefore = 0;
   sessionApcHitRate = undefined;
   sessionCompactRatio = undefined;
+  sessionCarbonGrams = 0;
+  sessionGridId = null;
+  sessionGridIntensity = undefined;
+  sessionGridCarbonSource = undefined;
   for (const entry of ctx.sessionManager.getBranch()) {
     if (entry.type === "custom" && entry.customType === ENERGY_ENTRY_TYPE && entry.data) {
       sessionEnergyJoules += entry.data.energy_joules || 0;
@@ -630,6 +657,15 @@ function replayEnergyEvents(ctx: any): void {
             sessionCompactRatio = mcr.mcr_compacted_tokens / mcr.mcr_original_tokens;
           }
         }
+        // Carbon (cumulative) + grid (latest-wins) from the verbatim payload.
+        const co2 = energyRaw.carbon_g_co2eq;
+        if (typeof co2 === "number") sessionCarbonGrams += co2;
+        const gid = energyRaw.grid_id;
+        if (typeof gid === "string") sessionGridId = gid;
+        const gi = energyRaw.grid_carbon_intensity_gco2perkwhr;
+        if (typeof gi === "number") sessionGridIntensity = gi;
+        const csrc = energyRaw.carbon_source;
+        if (typeof csrc === "string") sessionGridCarbonSource = csrc;
       }
     }
   }
@@ -650,18 +686,23 @@ function replayEnergyEvents(ctx: any): void {
 // → APC → drop → fp) before energy itself compresses. This keeps energy
 // visible even when MCR detail doesn't fit.
 //
-// Levels (most → least detail):
-//   ⚡0.77 mWh $0.003829 MCR 3bb342a0 drop<5 APC 85% compact 45%   full + MCR
-//   ⚡0.77 mWh $0.003829 MCR 3bb342a0 drop<5 APC 85%               drop compact
-//   ⚡0.77 mWh $0.003829 MCR 3bb342a0 drop<5                     drop APC
-//   ⚡0.77 mWh $0.003829 MCR 3bb342a0                              drop safe_drop
-//   ⚡0.77 mWh $0.003829 MCR                                      drop fp
-//   ⚡0.77 mWh $0.003829                                          drop MCR
-//   ⚡0.77mWh $0.003829                                           compressed + cost
-//   ⚡0.77mWh                                                      compressed only
+// Levels (most → least detail), with carbon (🌱 session CO₂) inserted between
+// cost and MCR — carbon is more core than MCR detail, so MCR drops first, then
+// the "CO₂" suffix, then the carbon value (compact), then energy compresses:
+//   ⚡0.77 mWh $0.003829 🌱1.24 g CO₂  MCR 3bb342a0 drop<5 APC 85% compact 45%
+//   ⚡0.77 mWh $0.003829 🌱1.24 g CO₂  MCR 3bb342a0 drop<5 APC 85%
+//   ⚡0.77 mWh $0.003829 🌱1.24 g CO₂  MCR 3bb342a0 drop<5
+//   ⚡0.77 mWh $0.003829 🌱1.24 g CO₂  MCR 3bb342a0
+//   ⚡0.77 mWh $0.003829 🌱1.24 g CO₂
+//   ⚡0.77 mWh $0.003829 🌱1.24 g                          drop "CO₂" suffix
+//   ⚡0.77 mWh $0.003829 🌱1.24g                          compact carbon
+//   ⚡0.77 mWh $0.003829                                 drop carbon
+//   ⚡0.77mWh $0.003829                                 compressed + cost
+//   ⚡0.77mWh                                            compressed only
 function buildEnergyText(maxCols: number): string | undefined {
   const hasEnergy = sessionEnergyJoules > 0 || sessionCostUsd > 0;
   const hasMCR = config.mcr !== "off" && sessionMcrFp !== null;
+  const hasCarbon = config.carbon !== "off" && sessionCarbonGrams > 0;
 
   if (!hasEnergy && !hasMCR) return undefined;
 
@@ -669,6 +710,9 @@ function buildEnergyText(maxCols: number): string | undefined {
   const energyStr = formatEnergy(sessionEnergyJoules);
   const costStr = formatCost(sessionCostUsd);
   const compactStr = formatEnergyCompact(sessionEnergyJoules);
+  const coreFull = `⚡${energyStr} ${costStr}`;
+  const coreCompressedCost = `⚡${compactStr} ${costStr}`;
+  const coreCompressedOnly = `⚡${compactStr}`;
 
   // MCR parts in priority order (least important dropped first)
   // compact → APC → drop< → fp → "MCR" prefix
@@ -678,38 +722,59 @@ function buildEnergyText(maxCols: number): string | undefined {
   if (sessionApcHitRate !== undefined) mcrParts.push(`APC ${(sessionApcHitRate * 100).toFixed(0)}%`);
   if (sessionCompactRatio !== undefined) mcrParts.push(`compact ${(sessionCompactRatio * 100).toFixed(0)}%`);
 
-  // Build candidates from most to least detailed
-  const candidates: string[] = [];
-
-  if (hasEnergy && hasMCR) {
-    // Full energy + full MCR, then drop MCR parts from the end
-    // Extra space between cost and MCR for visual separation
-    const energyPrefix = [`⚡${energyStr}`, costStr].join(" ");
-    candidates.push([energyPrefix, mcrParts.join(" ")].join("  "));
+  // MCR tiers: full join → drop parts from the end → "" (MCR dropped). Carbon
+  // (below) is more core than MCR detail, so MCR drops before carbon does.
+  const mcrTiers: string[] = [];
+  if (hasMCR) {
+    mcrTiers.push(mcrParts.join(" "));
     for (let drop = 1; drop <= mcrParts.length; drop++) {
-      const mcrText = mcrParts.slice(0, mcrParts.length - drop).join(" ");
-      const partial = mcrText ? [energyPrefix, mcrText].join("  ") : energyPrefix;
-      if (partial !== candidates[candidates.length - 1]) candidates.push(partial);
+      const t = mcrParts.slice(0, mcrParts.length - drop).join(" ");
+      if (t !== mcrTiers[mcrTiers.length - 1]) mcrTiers.push(t);
     }
-  } else if (hasMCR) {
-    // MCR only, no energy yet
+    if (mcrTiers[mcrTiers.length - 1] !== "") mcrTiers.push("");
+  } else {
+    mcrTiers.push("");
+  }
+
+  // Carbon tiers: "🌱X g CO₂" → "🌱X g" → "🌱Xg" → "" (dropped).
+  const carbonTiers: string[] = [];
+  if (hasCarbon) {
+    const carbonStr = formatCarbon(sessionCarbonGrams);
+    const carbonCompact = formatCarbonCompact(sessionCarbonGrams);
+    carbonTiers.push(`🌱${carbonStr} CO₂`, `🌱${carbonStr}`, `🌱${carbonCompact}`, "");
+  } else {
+    carbonTiers.push("");
+  }
+
+  // left = energy core + (carbon segment if any). Single space: carbon is part
+  // of the energy core, not a separate panel like MCR (which uses two spaces).
+  const leftWith = (carbonText: string) => (carbonText ? `${coreFull} ${carbonText}` : coreFull);
+
+  const candidates: string[] = [];
+  const carbonFull = carbonTiers[0];
+
+  if (hasEnergy) {
+    // Phase 1: drop MCR parts (carbon full, core full).
+    for (const mcrText of mcrTiers) {
+      const left = leftWith(carbonFull);
+      const c = mcrText ? `${left}  ${mcrText}` : left;
+      if (c !== candidates[candidates.length - 1]) candidates.push(c);
+    }
+    // Phase 2: MCR dropped — drop carbon tiers (core full).
+    for (const carbonText of carbonTiers.slice(1)) {
+      const c = leftWith(carbonText);
+      if (c !== candidates[candidates.length - 1]) candidates.push(c);
+    }
+    // Phase 3: compress energy core (carbon & MCR dropped).
+    if (candidates[candidates.length - 1] !== coreCompressedCost) candidates.push(coreCompressedCost);
+    if (candidates[candidates.length - 1] !== coreCompressedOnly) candidates.push(coreCompressedOnly);
+  } else {
+    // MCR only, no energy (and thus no carbon — carbon requires energy).
     candidates.push(mcrParts.join(" "));
     for (let drop = 1; drop < mcrParts.length; drop++) {
       candidates.push(mcrParts.slice(0, mcrParts.length - drop).join(" "));
     }
     candidates.push(mcrParts[0]);
-  } else {
-    // Energy only (no MCR data or mcr is off)
-    candidates.push(`⚡${energyStr} ${costStr}`);
-  }
-
-  // Add compressed energy levels (drop MCR, then compress energy)
-  if (hasEnergy) {
-    const compressedCost = `⚡${compactStr} ${costStr}`;
-    const compressedOnly = `⚡${compactStr}`;
-    // Only add if not already present (avoids duplicates)
-    if (candidates[candidates.length - 1] !== compressedCost) candidates.push(compressedCost);
-    if (candidates[candidates.length - 1] !== compressedOnly) candidates.push(compressedOnly);
   }
 
   for (const text of candidates) {
@@ -736,6 +801,90 @@ function formatEnergyCompact(joules: number): string {
   }
   const kwh = wh / 1000;
   return `${kwh.toFixed(2)}kWh`;
+}
+
+// ─── Grid / Carbon Display ─────────────────────────────────────────────────────
+// Neuralwatt's per-request energy payload carries the electricity grid the GPU
+// node drew from (grid_id), that grid's carbon intensity, and the resulting
+// CO₂e. The fleet routes across multiple grids (FI, FR, US-CAL-CISO,
+// US-CAR-DUK, US-MIDA-PJM, …), so grid_id is latest-wins (the "current" grid)
+// while session CO₂ accumulates like energy.
+//
+// grid_id is either a bare ISO country code ("FI") or an EIA/Electricity-Maps
+// style "CC-SUBREGION-BA" code ("US-MIDA-PJM"). We parse it generically (no
+// hardcoded list): the country comes from the first segment, the flag from
+// the country code via regional indicator symbols, and the short tag from
+// the last segment (the balancing-authority id). Any new grid Neuralwatt
+// routes to is handled without a code change.
+
+interface GridDisplay {
+  country: string | null;
+  flag: string;
+  short: string;
+  name: string;
+}
+
+// Build a flag emoji from any 2-letter ISO country code using regional indicator
+// symbols (0x1F1E6 + letter offset). Returns "" for non-2-letter codes so the
+// badge degrades to text-only for unknown grids.
+function countryFlag(cc: string | null): string {
+  if (!cc || cc.length !== 2 || !/^[A-Za-z]{2}$/.test(cc)) return "";
+  const a = cc.toUpperCase();
+  return String.fromCodePoint(0x1f1e6 + a.charCodeAt(0) - 65, 0x1f1e6 + a.charCodeAt(1) - 65);
+}
+
+export function parseGridId(gridId: string): GridDisplay {
+  const parts = gridId.split("-");
+  if (parts.length === 1) {
+    // bare country code (e.g. "FI", "FR")
+    return { country: gridId, flag: countryFlag(gridId), short: gridId, name: gridId };
+  }
+  // "CC-SUBREGION-BA" (e.g. "US-MIDA-PJM"): country = first segment,
+  // short = last segment (the balancing-authority id).
+  const country = parts[0];
+  const short = parts[parts.length - 1];
+  return { country, flag: countryFlag(country), short, name: gridId };
+}
+
+// Carbon (CO₂e) tiered formatting, mirroring formatEnergy's tiers.
+export function formatCarbon(grams: number): string {
+  if (grams === 0) return "0 g";
+  if (grams < 1) return `${(grams * 1000).toFixed(2)} mg`;
+  if (grams < 1000) {
+    const dec = grams < 10 ? 2 : grams < 100 ? 1 : 0;
+    return `${grams.toFixed(dec)} g`;
+  }
+  return `${(grams / 1000).toFixed(2)} kg`;
+}
+
+export function formatCarbonCompact(grams: number): string {
+  if (grams === 0) return "0g";
+  if (grams < 1) return `${(grams * 1000).toFixed(2)}mg`;
+  if (grams < 1000) {
+    const dec = grams < 10 ? 2 : grams < 100 ? 1 : 0;
+    return `${grams.toFixed(dec)}g`;
+  }
+  return `${(grams / 1000).toFixed(2)}kg`;
+}
+
+// Region badge tiers (most → least detailed). The flag drops first (decorative
+// and the widest per-info), then the intensity, leaving the balancing-authority
+// short tag as the width-safe text survivor that distinguishes same-country
+// grids (PJM vs CISO vs DUK). A "~" suffix marks intensities from a fallback
+// carbon_source (regional_fallback / static_fallback), since those are
+// approximate rather than measured.
+function buildRegionTiers(): string[] {
+  if (config.carbon === "off" || !sessionGridId) return [""];
+  const g = parseGridId(sessionGridId);
+  const fallback =
+    sessionGridCarbonSource === "regional_fallback" || sessionGridCarbonSource === "static_fallback";
+  const intensity =
+    sessionGridIntensity != null ? `${Math.round(sessionGridIntensity)}${fallback ? "~" : ""}` : "";
+  const t1 = [g.flag, g.short, intensity].filter(Boolean).join(" ");
+  const t2 = [g.short, intensity].filter(Boolean).join(" ");
+  const t3 = g.short;
+  const tiers = [t1, t2, t3, ""];
+  return tiers.filter((t, i) => i === 0 || t !== tiers[i - 1]);
 }
 
 // ─── Quota Fetching ──────────────────────────────────────────────────────────
@@ -798,18 +947,59 @@ async function fetchQuota(apiKey: string, signal?: AbortSignal): Promise<QuotaRe
 // Progressive-disclosure quota text. Returns the highest-fidelity string
 // that fits within maxCols visible columns, or undefined if nothing fits.
 //
-// Each level drops less-important detail and compresses formatting:
+// Quota levels drop less-important detail and compress formatting. When
+// carbon is on, the fleet grid/region badge is appended and is more important
+// than quota detail, so quota compresses first (badge held at full), then the
+// badge itself compresses (flag → intensity → short tag → dropped) while the
+// quota is at its plan-only minimum:
 //
-//   pro ● 28.0/33.0 kWh ∙ $74.62 ∙ ⚷ $0.12/$1.00/d   full
-//   pro ● 28.0/33.0 kWh ∙ $74.62                       drop allowance
-//   pro ● 28.0/33.0kWh ∙ $74.62                       merge kWh unit
-//   pro ● 28.0kWh ∙ $74.62                            drop "/total"
-//   pro ● ∙ $74.62                                     drop kWh
-//   pro ∙ $74.62                                       drop status dot
-//   pro                                                plan name only
+//   pro ● 28.0/33.0 kWh ∙ $74.62 ∙ ⚷ $0.12/$1.00/d 🇺🇸 PJM 416   full
+//   pro ● 28.0/33.0 kWh ∙ $74.62 🇺🇸 PJM 416                   drop allowance
+//   pro ● 28.0/33.0kWh ∙ $74.62 🇺🇸 PJM 416                   merge kWh unit
+//   pro ● 28.0kWh ∙ $74.62 🇺🇸 PJM 416                        drop "/total"
+//   pro ● ∙ $74.62 🇺🇸 PJM 416                               drop kWh
+//   pro ∙ $74.62 🇺🇸 PJM 416                                 drop status dot
+//   pro 🇺🇸 PJM 416                                           plan only + badge
+//   pro PJM 416                                             drop flag
+//   pro PJM                                                drop intensity
+//   pro                                                   drop badge
+// Combine quota tiers with region-badge tiers. Quota detail drops first
+// (badge held full), then the badge compresses while the quota is at its
+// minimum. When there is no grid (carbon off or no data yet) regionTiers is
+// [""], which makes this a passthrough over the quota tiers.
+function combineQuotaRegion(quotaTiers: string[], regionTiers: string[], maxCols: number): string {
+  const regionFull = regionTiers[0];
+  const last = quotaTiers[quotaTiers.length - 1];
+  const candidates: string[] = [];
+  for (const qt of quotaTiers) {
+    const c = regionFull ? `${qt} ${regionFull}` : qt;
+    if (c !== candidates[candidates.length - 1]) candidates.push(c);
+  }
+  for (const rt of regionTiers.slice(1)) {
+    const c = rt ? `${last} ${rt}` : last;
+    if (c !== candidates[candidates.length - 1]) candidates.push(c);
+  }
+  for (const text of candidates) {
+    if (termVisWidth(text) <= maxCols) return text;
+  }
+  return truncateAnsi(last, maxCols);
+}
+
+// Region badge as a standalone (quota-side) text, compressed to fit maxCols.
+// Used when the quota line is off but carbon is on, so the fleet grid/region
+// badge still renders on its own (latest-wins grid + intensity).
+function buildRegionText(maxCols: number): string | undefined {
+  const tiers = buildRegionTiers();
+  for (const t of tiers) {
+    if (t && termVisWidth(t) <= maxCols) return t;
+  }
+  return undefined; // only "" fits (or no grid) — don't render
+}
+
 function buildQuotaText(maxCols: number): string | undefined {
   if (!cachedQuota) return undefined;
   const q = cachedQuota;
+  const regionTiers = buildRegionTiers();
 
   if (q.subscription) {
     const plan = q.subscription.plan;
@@ -822,44 +1012,28 @@ function buildQuotaText(maxCols: number): string | undefined {
     const overage = q.subscription.in_overage === true;
     const allowance = buildAllowancePart(q);
 
-    // Build from most to least detailed
-    const candidates: string[] = [];
+    // Quota tiers from most to least detailed
+    const quotaTiers: string[] = [];
+    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits, allowance));
+    if (allowance) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits));
+    if (hasKwh) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, kwhIncl, overage, false, true, credits));
+    if (hasKwh) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, null, overage, false, true, credits));
+    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, true, credits));
+    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, false, credits));
+    quotaTiers.push(plan);
 
-    // Full
-    candidates.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits, allowance));
-    // Drop allowance
-    if (allowance) candidates.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits));
-    // Merge kWh unit (no space before unit)
-    if (hasKwh) candidates.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, kwhIncl, overage, false, true, credits));
-    // Drop "/total" kWh
-    if (hasKwh) candidates.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, null, overage, false, true, credits));
-    // Drop kWh entirely
-    candidates.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, true, credits));
-    // Drop status dot
-    candidates.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, false, credits));
-    // Plan name only
-    candidates.push(plan);
-
-    for (const text of candidates) {
-      if (termVisWidth(text) <= maxCols) return text;
-    }
-
-    // Nothing fits — truncate plan name
-    return truncateAnsi(plan, maxCols);
+    return combineQuotaRegion(quotaTiers, regionTiers, maxCols);
   } else {
     // Pay-as-you-go: no subscription
     const credits = formatCost(q.balance.credits_remaining_usd);
     const allowance = buildAllowancePart(q);
 
-    const candidates: string[] = [];
-    candidates.push(["payg", `∙ ${credits}`, allowance].filter(Boolean).join(" "));
-    candidates.push(["payg", `∙ ${credits}`].join(" "));
-    candidates.push("payg");
+    const quotaTiers: string[] = [];
+    quotaTiers.push(["payg", `∙ ${credits}`, allowance].filter(Boolean).join(" "));
+    quotaTiers.push(["payg", `∙ ${credits}`].join(" "));
+    quotaTiers.push("payg");
 
-    for (const text of candidates) {
-      if (termVisWidth(text) <= maxCols) return text;
-    }
-    return truncateAnsi("payg", maxCols);
+    return combineQuotaRegion(quotaTiers, regionTiers, maxCols);
   }
 }
 
@@ -951,17 +1125,22 @@ function termVisWidth(str: string): number {
         continue;
       }
     }
-    const char = str[i];
-    if (EMOJI_RE.test(char)) {
+    // Advance by code point so non-BMP chars (flag emoji, 🌱) are measured as
+    // one glyph, not split into two 1-col surrogate halves. Regional indicators
+    // (U+1F1E6–U+1F1FF) are Emoji_Presentation individually but combine into a
+    // single 2-col flag, so count each as 1 col (a flag pair = 2, not 4).
+    const cp = str.codePointAt(i)!;
+    const char = cp > 0xffff ? str.slice(i, i + 2) : str[i];
+    if (cp >= 0x1f1e6 && cp <= 0x1f1ff) {
+      width += 1;
+    } else if (EMOJI_RE.test(char)) {
       width += 2;
-      i++;
     } else if (AMBIGUOUS_WIDE.has(char)) {
       width += 2;
-      i++;
     } else {
       width += 1;
-      i++;
     }
+    i += cp > 0xffff ? 2 : 1;
   }
   return width;
 }
@@ -994,10 +1173,15 @@ function truncateAnsi(str: string, maxCols: number): string {
       continue;
     }
 
-    // Determine the visible width of this character
-    const char = str[i];
+    // Determine the visible width of this code point (advance by code point so
+    // we never split a non-BMP char like a flag emoji or 🌱 mid-glyph). Regional
+    // indicators combine into a 2-col flag, so each counts as 1 (a pair = 2).
+    const cp = str.codePointAt(i)!;
+    const char = cp > 0xffff ? str.slice(i, i + 2) : str[i];
     let charWidth: number;
-    if (EMOJI_RE.test(char)) {
+    if (cp >= 0x1f1e6 && cp <= 0x1f1ff) {
+      charWidth = 1;
+    } else if (EMOJI_RE.test(char)) {
       charWidth = 2;
     } else if (AMBIGUOUS_WIDE.has(char)) {
       charWidth = 2;
@@ -1008,7 +1192,7 @@ function truncateAnsi(str: string, maxCols: number): string {
     if (visWidth + charWidth > target) break;
     result += char;
     visWidth += charWidth;
-    i++;
+    i += cp > 0xffff ? 2 : 1;
   }
 
   return result + "…";
@@ -1024,12 +1208,14 @@ function truncateAnsi(str: string, maxCols: number): string {
 class StatusLineWidget {
   private leftRaw: string;
   private rightRaw: string | undefined;
+  private compressRight: ((budget: number) => string | undefined) | undefined;
   private theme: any;
 
-  constructor(theme: any, leftRaw: string, rightRaw?: string) {
+  constructor(theme: any, leftRaw: string, rightRaw?: string, compressRight?: (budget: number) => string | undefined) {
     this.theme = theme;
     this.leftRaw = leftRaw;
     this.rightRaw = rightRaw;
+    this.compressRight = compressRight;
   }
 
   render(width: number): string[] {
@@ -1063,7 +1249,7 @@ class StatusLineWidget {
     // highest-fidelity string that fits within budget cols.
     const budget = available - 1;
     if (budget > 0) {
-      const compressed = buildQuotaText(budget);
+      const compressed = (this.compressRight ?? buildQuotaText)(budget);
       if (compressed) {
         const themedL = this.theme.fg("dim", this.leftRaw);
         const themedR = this.theme.fg("dim", compressed);
@@ -1085,7 +1271,7 @@ function updateEnergyStatus(ctx: any): void {
   // different provider, and prevents the quota from appearing before any
   // turn has completed (quota is pre-fetched eagerly so it's ready to display
   // as soon as the first turn ends, alongside the energy data).
-  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null;
+  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null || sessionCarbonGrams > 0 || sessionGridId !== null;
 
   // When hideOnOtherProvider is enabled, suppress display if the active
   // model is from a different provider. This prevents stale energy/quota
@@ -1122,6 +1308,19 @@ function updateEnergyStatus(ctx: any): void {
   const quotaStatusbar = config.quota === "statusbar" && quotaFull;
   const mcrStatusbar = config.mcr === "statusbar" && mcrFull;
 
+  // Widget flags (also used by the standalone-region logic below).
+  const showEnergyWidget = (config.energy === "widget" || config.mcr === "widget") && (energyFull || (config.mcr === "widget" && sessionMcrFp));
+  const showQuotaWidget = config.quota === "widget" && quotaFull;
+
+  // Region badge: rides the quota line when quota renders. When the quota line
+  // is off / not rendering but carbon is on and we have a grid, render the badge
+  // standalone so "where is the fleet" still shows. Placement then follows the
+  // carbon mode (widget → below-editor widget; statusbar → quota status key).
+  const hasGridForBadge = config.carbon !== "off" && hasNeuralwattSession && sessionGridId != null;
+  const regionCarriedByQuota = showQuotaWidget || quotaStatusbar;
+  const regionStandaloneText = hasGridForBadge && !regionCarriedByQuota ? buildRegionText(Infinity) : undefined;
+  const regionStatusbar = config.carbon === "statusbar" && regionStandaloneText;
+
   if (energyStatusbar && quotaStatusbar) {
     const combined = ctx.ui.theme.fg("dim", energyFull! + " | " + quotaFull!);
     ctx.ui.setStatus(STATUS_KEY_ENERGY, combined);
@@ -1134,6 +1333,8 @@ function updateEnergyStatus(ctx: any): void {
     }
     if (quotaStatusbar) {
       ctx.ui.setStatus(STATUS_KEY_QUOTA, ctx.ui.theme.fg("dim", quotaFull!));
+    } else if (regionStatusbar) {
+      ctx.ui.setStatus(STATUS_KEY_QUOTA, ctx.ui.theme.fg("dim", regionStandaloneText!));
     } else {
       ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
     }
@@ -1145,17 +1346,25 @@ function updateEnergyStatus(ctx: any): void {
   }
 
   // ─── Widget assembly ─────────────────────────────────────────────────────
-  // The widget stores raw (unthemed) text so it can re-compress the quota
-  // side at render time when the terminal is narrow.
+  // The widget stores raw (unthemed) text so it can re-compress the right
+  // side at render time when the terminal is narrow. The right side is either
+  // the quota line (buildQuotaText) or, when quota is off but carbon is on, the
+  // standalone region badge (buildRegionText).
   // When config.mcr is "widget", MCR data is embedded in the energy text
   // (left side) via buildEnergyText; when "statusbar" or "off", it's excluded.
-  const showEnergyWidget = (config.energy === "widget" || config.mcr === "widget") && (energyFull || (config.mcr === "widget" && sessionMcrFp));
-  const showQuotaWidget = config.quota === "widget" && quotaFull;
-
-  if (showEnergyWidget || showQuotaWidget) {
+  if (showEnergyWidget || showQuotaWidget || (config.carbon === "widget" && regionStandaloneText)) {
     const leftRaw = energyFull ?? "";
-    const rightRaw = showEnergyWidget && showQuotaWidget ? quotaFull! : undefined;
-    const leftOnlyRaw = !showEnergyWidget && showQuotaWidget ? quotaFull! : undefined;
+    // Right side: quota line if it renders; else the standalone region when
+    // there's a left (energy) side to pair it with.
+    const rightRaw = showEnergyWidget && showQuotaWidget ? quotaFull!
+      : showEnergyWidget && regionStandaloneText ? regionStandaloneText
+      : undefined;
+    const leftOnlyRaw = !showEnergyWidget && showQuotaWidget ? quotaFull!
+      : !showEnergyWidget && regionStandaloneText ? regionStandaloneText
+      : undefined;
+    // Re-compress with buildRegionText when the right side is region-only.
+    const rightIsRegionStandalone = !!rightRaw && rightRaw === regionStandaloneText;
+    const compressRight = rightIsRegionStandalone ? buildRegionText : undefined;
     if (leftOnlyRaw) {
       ctx.ui.setWidget(
         "neuralwatt",
@@ -1165,7 +1374,7 @@ function updateEnergyStatus(ctx: any): void {
     } else {
       ctx.ui.setWidget(
         "neuralwatt",
-        (_ui: any, theme: any) => new StatusLineWidget(theme, leftRaw, rightRaw),
+        (_ui: any, theme: any) => new StatusLineWidget(theme, leftRaw, rightRaw, compressRight),
         { placement: "belowEditor" },
       );
     }
@@ -1526,6 +1735,15 @@ export default function (pi: ExtensionAPI) {
           sessionCompactRatio = (mcr.mcr_compacted_tokens as number) / (mcr.mcr_original_tokens as number);
         }
       }
+      // Carbon (cumulative) + grid (latest-wins) from this turn's energy payload.
+      const co2 = pendingEnergyRaw.carbon_g_co2eq;
+      if (typeof co2 === "number") sessionCarbonGrams += co2;
+      const gid = pendingEnergyRaw.grid_id;
+      if (typeof gid === "string") sessionGridId = gid;
+      const gi = pendingEnergyRaw.grid_carbon_intensity_gco2perkwhr;
+      if (typeof gi === "number") sessionGridIntensity = gi;
+      const csrc = pendingEnergyRaw.carbon_source;
+      if (typeof csrc === "string") sessionGridCarbonSource = csrc;
     }
 
     if (pendingEnergyJoules > 0 || pendingCostUsd > 0 || pendingEnergyRaw || pendingMcrSessionRaw || pendingCostRaw) {
@@ -1609,7 +1827,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("neuralwatt-settings", {
-    description: "Configure Neuralwatt: preserved thinking per model + energy/quota/MCR display",
+    description: "Configure Neuralwatt: preserved thinking per model + energy/quota/MCR/carbon display",
     async handler(_args, ctx) {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/neuralwatt-settings requires TUI mode.", "error");
@@ -1695,6 +1913,13 @@ export default function (pi: ExtensionAPI) {
             values: ["widget", "statusbar", "off"],
           },
           {
+            id: "carbon",
+            label: "Carbon display",
+            description: "Where session CO₂ emissions (energy line) and the fleet grid/region badge (quota line) are shown",
+            currentValue: config.carbon,
+            values: ["widget", "statusbar", "off"],
+          },
+          {
             id: "hideOnOtherProvider",
             label: "Hide on other provider",
             description: "Hide all Neuralwatt display when a non-Neuralwatt model is active",
@@ -1711,7 +1936,7 @@ export default function (pi: ExtensionAPI) {
           Math.min(items.length + 2, 15),
           getSettingsListTheme(),
           (id: string, newValue: string) => {
-            if (id === "energy" || id === "quota" || id === "mcr") {
+            if (id === "energy" || id === "quota" || id === "mcr" || id === "carbon") {
               const raw = readRawNeuralwattConfig();
               raw[id] = newValue;
               writeRawNeuralwattConfig(raw);

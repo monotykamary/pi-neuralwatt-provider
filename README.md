@@ -193,7 +193,9 @@ Energy and quota are independently configurable. Create `~/.pi/agent/extensions/
 ```json
 {
   "energy": "widget",
-  "quota": "widget"
+  "quota": "widget",
+  "mcr": "widget",
+  "carbon": "widget"
 }
 ```
 
@@ -203,12 +205,17 @@ The file is auto-populated with defaults on first run.
 |-----|--------|---------|-------------|
 | `energy` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Energy/cost display mode |
 | `quota` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Quota display mode |
+| `mcr` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | MCR (context-reuse) display mode |
+| `carbon` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Carbon (session CO₂ + fleet grid/region badge) display mode |
+| `hideOnOtherProvider` | `true`, `false` | `false` | Hide all Neuralwatt display when a non-Neuralwatt model is active |
 
 **Display modes:**
 
 - **`"widget"`** — Shown in the dedicated below-editor status line. Energy on the left, quota on the right, padded to terminal width.
 - **`"statusbar"`** — Shown in the built-in pi status bar. When both are set to `"statusbar"`, they're combined with a ` | ` separator: `⚡X J $Y | plan ● kWh ∙ $bal`.
 - **`"off"`** — Hidden entirely. For `"quota": "off"`, the `/v1/quota` API fetch is also skipped (saving a network round-trip). Energy data is still parsed from the SSE stream and persisted to the session even when `"off"`.
+
+`mcr` and `carbon` follow the same three modes. `carbon` adds two segments: **session CO₂** (`🌱X g CO₂`, on the energy line — cumulative, like energy) and a **fleet grid/region badge** (on the quota line — the latest request's electricity grid, e.g. `🇺🇸 PJM 416`). The badge compresses flag → intensity → balancing-authority tag as the terminal narrows, and a `~` marks intensities from a fallback carbon source. The badge also renders **standalone** (on its own) when `quota` is `off`, so the fleet location still shows.
 
 **Example — custom quota footer:** If you use your own unified quota footer extension, disable the built-in quota display to avoid duplication:
 
@@ -228,6 +235,7 @@ The file is auto-populated with defaults on first run.
   "energy": "widget",
   "quota": "widget",
   "mcr": "widget",
+  "carbon": "widget",
   "hideOnOtherProvider": false,
   "modelOverrides": {
     // Disable full-history reasoning for kimi-k2.6 (e.g. to save tokens):
@@ -247,7 +255,7 @@ The full set of overridable fields matches the model schema (`compat`, `thinking
 `/neuralwatt-settings` opens an interactive settings panel (mirrors pi core's `/settings` — bordered `SettingsList`, Esc to go back) to configure Neuralwatt without editing JSON by hand:
 
 - **Preserved thinking** (nested submenu, one row per model) — toggles `clear_thinking` (GLM-5.2 family) / `preserve_thinking` (Kimi K2.6/K2.7) in `modelOverrides` between **Preserve Thinking** (keep full reasoning history across turns; the default, `clear_thinking: false`) and **Clear Thinking** (let the template drop older reasoning; saves tokens, but can degrade multi-turn recall / cause overthinking).
-- **Energy / Quota / MCR display** (`widget` / `statusbar` / `off`) and **Hide on other provider** — the same fields as [Display Configuration](#display-configuration), editable live.
+- **Energy / Quota / MCR / Carbon display** (`widget` / `statusbar` / `off`) and **Hide on other provider** — the same fields as [Display Configuration](#display-configuration), editable live.
 
 Changes write to `~/.pi/agent/extensions/neuralwatt.json` (raw read-modify-write, so unrelated fields survive), refresh the in-memory config, and re-register the provider, so they take effect immediately — no restart needed.
 
@@ -261,23 +269,27 @@ Neuralwatt provides real-time energy consumption data with every API response. T
 |---------|----------|
 | `⚡0.8mWh` | Cumulative session energy consumption (auto-scaled: J → mWh → Wh → kWh) |
 | `$0.003952` | Cumulative session actual billed cost from Neuralwatt |
+| `🌱1.24 g CO₂` | Cumulative session CO₂ emissions (auto-scaled: mg → g → kg); on the energy line when `carbon` is on |
 | `pro` | Your Neuralwatt subscription plan |
 | `●` | Subscription status indicator (● = active, ⊘ = past due/paused) |
 | `31.7/33.0 kWh` | kWh remaining / kWh included in your plan |
 | `∙ $64.55` | Credits remaining on your account |
 | `🔑 .../.../mo` | Key allowance usage (if set on your API key) |
+| `🇺🇸 PJM 416` | Fleet grid/region badge (latest request's electricity grid + its carbon intensity, g/kWh); on the quota line when `carbon` is on. A `~` marks fallback intensities |
 
 The energy and cost data comes from Neuralwatt's SSE stream comments (`: energy` and `: cost`), which the standard OpenAI SDK discards. This extension uses a custom stream handler that parses raw SSE to capture them.
 
 Energy is measured directly from GPU hardware using NVIDIA's NVML. For concurrent requests, Neuralwatt uses token-weighted attribution to fairly calculate your share. See [Neuralwatt's energy methodology](https://portal.neuralwatt.com/docs/energy-methodology) for details.
 
+The same `: energy` comment carries the electricity grid the GPU node drew from (`grid_id`), that grid's carbon intensity, and the resulting CO₂e. The fleet routes across multiple grids, so `grid_id` is latest-wins (the "current" grid) while session CO₂ accumulates like energy. `grid_id` is either a bare ISO country code (`FI`) or an EIA/Electricity-Maps-style `CC-SUBREGION-BA` code (`US-MIDA-PJM`); the badge parses it generically (country flag via regional indicators, balancing-authority tag as the short form), so any new grid renders without a code change.
+
 ### Persistence
 
-Energy and cost data is persisted per-request as custom session entries. On session resume or tree navigation, the totals are rebuilt by replaying all events in the current branch. This means:
+Energy, cost, carbon, and grid data are persisted per-request as custom session entries. On session resume or tree navigation, the totals are rebuilt by replaying all events in the current branch — CO₂ accumulates like energy, while `grid_id`/intensity are latest-wins. This means:
 
-- **Session resume** — Energy/cost totals are restored when you continue a session
+- **Session resume** — Energy/cost/carbon totals (and the latest grid) are restored when you continue a session
 - **Branching** — Navigating to a different point in the session tree shows the correct totals for that branch
-- **Forking** — Forked sessions carry their energy history forward
+- **Forking** — Forked sessions carry their energy (and carbon) history forward
 
 ### Per-turn energy event
 
