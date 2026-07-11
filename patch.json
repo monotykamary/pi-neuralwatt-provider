@@ -6,7 +6,8 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max"
+      "xhigh": "max",
+      "max": "max"
     },
     "compat": {
       "chatTemplateKwargs": {
@@ -26,7 +27,8 @@
       "low": null,
       "medium": null,
       "high": "high",
-      "xhigh": "max"
+      "xhigh": "max",
+      "max": "max"
     },
     "compat": {
       "chatTemplateKwargs": {
@@ -40,7 +42,8 @@
       "low": "low",
       "medium": "medium",
       "high": "high",
-      "xhigh": null
+      "xhigh": null,
+      "max": null
     },
     "compat": {
       "maxTokensField": "max_tokens",
@@ -61,7 +64,8 @@
       "low": "low",
       "medium": "medium",
       "high": "high",
-      "xhigh": "high"
+      "xhigh": "high",
+      "max": "high"
     },
     "compat": {
       "maxTokensField": "max_tokens",

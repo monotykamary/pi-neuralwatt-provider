@@ -1,6 +1,6 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { streamNeuralwatt } from "../index";
-import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/pi-ai";
+import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/pi-ai/compat";
 import patchesData from "../patch.json" with { type: "json" };
 
 // A GLM-5.2 model shaped exactly as the extension registers it (embedded
@@ -114,6 +114,7 @@ describe("GLM-5.2 family patch.json thinkingLevelMap", () => {
     medium: null,
     high: "high",
     xhigh: "max",
+    max: "max",
   };
 
   for (const id of ["glm-5.2", "glm-5.2-flex", "glm-5.2-short"]) {
@@ -138,6 +139,7 @@ describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
     medium: "medium",
     high: "high",
     xhigh: "high",
+    max: "high",
   };
 
   for (const id of ["kimi-k2.7-code", "kimi-k2.7-code-flex"]) {

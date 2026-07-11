@@ -19,7 +19,8 @@
       "low": "low",
       "medium": "medium",
       "high": "high",
-      "xhigh": null
+      "xhigh": null,
+      "max": null
     },
     "compat": {
       "supportsDeveloperRole": false,
@@ -68,7 +69,8 @@
       "low": "low",
       "medium": "medium",
       "high": "high",
-      "xhigh": null
+      "xhigh": null,
+      "max": null
     },
     "compat": {
       "supportsDeveloperRole": false,
