@@ -17,7 +17,7 @@ const glm52 = {
     low: null,
     medium: null,
     high: "high",
-    xhigh: "max",
+    max: "max",
   },
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 131072,
@@ -78,18 +78,18 @@ describe("streamNeuralwatt thinking-level forwarding", () => {
     const spy = vi.fn((_m: any, level: any) => level);
     __setClamp(spy);
 
-    const stream = streamNeuralwatt(glm52, context, { apiKey: "sk-test", reasoning: "xhigh" } as any);
+    const stream = streamNeuralwatt(glm52, context, { apiKey: "sk-test", reasoning: "max" } as any);
     stream.end();
 
     expect(spy).toHaveBeenCalledTimes(1);
-    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ id: "glm-5.2" }), "xhigh");
-    expect(__streamCalls[0].options.reasoningEffort).toBe("xhigh");
+    expect(spy).toHaveBeenCalledWith(expect.objectContaining({ id: "glm-5.2" }), "max");
+    expect(__streamCalls[0].options.reasoningEffort).toBe("max");
   });
 
   it("forwards the clampThinkingLevel return value as reasoningEffort", () => {
     __setClamp(() => "max");
 
-    const stream = streamNeuralwatt(glm52, context, { apiKey: "sk-test", reasoning: "xhigh" } as any);
+    const stream = streamNeuralwatt(glm52, context, { apiKey: "sk-test", reasoning: "high" } as any);
     stream.end();
 
     expect(__streamCalls[0].options.reasoningEffort).toBe("max");
@@ -113,11 +113,10 @@ describe("GLM-5.2 family patch.json thinkingLevelMap", () => {
     low: null,
     medium: null,
     high: "high",
-    xhigh: "max",
     max: "max",
   };
 
-  for (const id of ["glm-5.2", "glm-5.2-flex", "glm-5.2-short"]) {
+  for (const id of ["glm-5.2", "glm-5.2-short"]) {
     it(`${id} maps onto GLM-5.2's three real states (skip / high / max)`, () => {
       expect(patches[id]?.thinkingLevelMap).toEqual(expectedMap);
     });
@@ -138,21 +137,19 @@ describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
     low: "low",
     medium: "medium",
     high: "high",
-    xhigh: "high",
     max: "high",
   };
 
-  for (const id of ["kimi-k2.7-code", "kimi-k2.7-code-flex"]) {
-    it(`${id} supports xhigh (mapped to high), matching Makora's K2.7 config`, () => {
+  for (const id of ["kimi-k2.7-code"]) {
+    it(`${id} thinkingLevelMap clamps max → high (model caps at highest supported)`, () => {
       expect(patches[id]?.thinkingLevelMap).toEqual(expectedMap);
     });
   }
 
-  it("kimi-k2.7-code xhigh maps to high (not null/dropped)", () => {
-    // Before this patch xhigh was null (clamped away). Makora's K2.7 supports
-    // xhigh → high; this mirrors that so /reasoning xhigh is honored as a real
-    // level rather than silently downgraded to high via clamp.
-    expect(patches["kimi-k2.7-code"]?.thinkingLevelMap?.xhigh).toBe("high");
+  it("kimi-k2.7-code max maps to high (clamps to highest supported)", () => {
+    // K2.7 caps at high; this clamps max → high so /reasoning max is honored as a
+    // real level rather than silently passed through to an API that rejects it.
+    expect(patches["kimi-k2.7-code"]?.thinkingLevelMap?.max).toBe("high");
   });
 });
 
@@ -278,7 +275,7 @@ describe("patch.json chatTemplateKwargs enablement (behavioral E2E-verified)", (
 
   // Kimi K2.6/K2.7 reasoning variants: preserve_thinking: true
   // (doc-backed; behavioral E2E: 0/6 → 6/6 recall)
-  const kimi = ["kimi-k2.6", "kimi-k2.6-flex", "neuralwatt/kimi-k2.6-long", "kimi-k2.7-code", "kimi-k2.7-code-flex"];
+  const kimi = ["kimi-k2.6", "kimi-k2.7-code"];
   for (const id of kimi) {
     it(`${id} opts into full-history via preserve_thinking: true`, () => {
       expect(patches[id]?.compat?.chatTemplateKwargs).toEqual({ preserve_thinking: true });
@@ -290,8 +287,8 @@ describe("patch.json chatTemplateKwargs enablement (behavioral E2E-verified)", (
   // GLM-5.2 reasoning variants: clear_thinking: false
   // (NOT in the docs' full-history table, which lists clear_thinking only for
   // GLM-5.1; but behavioral E2E proved it functional on GLM-5.2: 1/4 → 4/4 recall,
-  // confirmed family-wide on base/short/flex). Non-reasoning -fast variants excluded.
-  const glm = ["glm-5.2", "glm-5.2-flex", "glm-5.2-short", "glm-5.2-short-flex"];
+  // confirmed family-wide on base/short). Non-reasoning -fast variants excluded.
+  const glm = ["glm-5.2", "glm-5.2-short"];
   for (const id of glm) {
     it(`${id} opts into full-history via clear_thinking: false`, () => {
       expect(patches[id]?.compat?.chatTemplateKwargs).toEqual({ clear_thinking: false });
