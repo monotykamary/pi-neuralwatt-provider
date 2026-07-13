@@ -1845,7 +1845,7 @@ export default function (pi: ExtensionAPI) {
         const items: any[] = [
           {
             id: "preserved-thinking",
-            label: "Preserved thinking",
+            label: "Preserved thinking ›",
             description: "Per-model Preserve Thinking / Clear Thinking (full-history reasoning). Preserve Thinking keeps all turns' reasoning; Clear Thinking lets the template drop older reasoning (saves tokens, can hurt multi-turn recall / cause overthinking).",
             currentValue: "configure",
             submenu: (_currentValue: string, subDone: (v?: string) => void) => {
