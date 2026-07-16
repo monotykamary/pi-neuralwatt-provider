@@ -1829,7 +1829,68 @@ export default function (pi: ExtensionAPI) {
     description: "Configure Neuralwatt: preserved thinking per model + energy/quota/MCR/carbon display",
     async handler(_args, ctx) {
       if (ctx.mode !== "tui") {
-        ctx.ui.notify("/neuralwatt-settings requires TUI mode.", "error");
+        if (!ctx.hasUI) {
+          ctx.ui.notify("/neuralwatt-settings requires a UI (TUI or GUI).", "error");
+          return;
+        }
+        const guiItems: any[] = [
+          { id: "preserved-thinking", label: "Preserved thinking", current: "configure" },
+          { id: "energy", label: "Energy display", current: config.energy, values: ["widget", "statusbar", "off"] },
+          { id: "quota", label: "Quota display", current: config.quota, values: ["widget", "statusbar", "off"] },
+          { id: "mcr", label: "MCR display", current: config.mcr, values: ["widget", "statusbar", "off"] },
+          { id: "carbon", label: "Carbon display", current: config.carbon, values: ["widget", "statusbar", "off"] },
+          { id: "hideOnOtherProvider", label: "Hide on other provider", current: config.hideOnOtherProvider ? "true" : "false", values: ["true", "false"] },
+        ];
+        const pick = await ctx.ui.select(
+          "Neuralwatt settings \u2014 pick a setting",
+          guiItems.map((i) => `${i.label}: ${i.current}`),
+        );
+        if (pick === undefined) return;
+        const item = guiItems.find((i) => pick.startsWith(`${i.label}:`));
+        if (!item) return;
+        if (item.id === "preserved-thinking") {
+          const fresh = collectPreserveState();
+          if (fresh.length === 0) {
+            ctx.ui.notify("No models support preserved thinking.", "info");
+            return;
+          }
+          const modelPick = await ctx.ui.select(
+            "Preserved thinking \u2014 pick a model",
+            fresh.map((e) => `${e.name}: ${e.preserved ? "Preserve Thinking" : "Clear Thinking"}`),
+          );
+          if (modelPick === undefined) return;
+          const entry = fresh.find((e) => modelPick.startsWith(`${e.name}:`));
+          if (!entry) return;
+          const v = await ctx.ui.select(entry.name, ["Preserve Thinking", "Clear Thinking"]);
+          if (v === undefined) return;
+          const preservedOn = v === "Preserve Thinking";
+          const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
+          const raw = readRawNeuralwattConfig();
+          const overrides = raw.modelOverrides ?? (raw.modelOverrides = {});
+          const ov = overrides[entry.id] ?? (overrides[entry.id] = {});
+          const compat = ov.compat ?? (ov.compat = {});
+          const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
+          kwargs[entry.flag] = flagValue;
+          writeRawNeuralwattConfig(raw);
+          config = loadConfig();
+          _staleModelsCache = null;
+          pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(loadStaleModels(embeddedModels), customModels, patches, config.modelOverrides)));
+          ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} \u2014 takes effect now.`, "info");
+        } else {
+          const v = await ctx.ui.select(item.label, item.values);
+          if (v === undefined) return;
+          const raw = readRawNeuralwattConfig();
+          if (item.id === "hideOnOtherProvider") {
+            raw.hideOnOtherProvider = v === "true";
+          } else {
+            raw[item.id] = v;
+          }
+          writeRawNeuralwattConfig(raw);
+          config = loadConfig();
+          updateEnergyStatus(ctx);
+          ctx.ui.notify(`${item.label} set to ${v}.`, "info");
+        }
+        ctx.ui.notify("Run /neuralwatt-settings again for more.", "info");
         return;
       }
       const { SettingsList, Container } = await import("@earendil-works/pi-tui");
