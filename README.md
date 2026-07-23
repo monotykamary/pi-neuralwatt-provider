@@ -31,6 +31,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 
 | Model | Context | Vision | Reasoning | Input $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|------------|
+| Gemma 4 31B | 262K | ✅ | ❌ | $0.14 | $0.42 |
 | GLM-5.2 | 1.0M | ❌ | ✅ | $1.45 | $4.50 |
 | GLM-5.2 (fast) | 1.0M | ❌ | ❌ | $1.45 | $4.50 |
 | GLM-5.2 (flex) | 1.0M | ❌ | ✅ | $1.45 | $4.50 |

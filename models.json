@@ -1,5 +1,28 @@
 [
   {
+    "id": "gemma-4-31b",
+    "name": "Gemma 4 31B",
+    "reasoning": false,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.144,
+      "output": 0.42,
+      "cacheRead": 0.036,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 16384,
+    "compat": {
+      "supportsDeveloperRole": false
+    },
+    "vision": {
+      "maxImagesPerRequest": 4
+    }
+  },
+  {
     "id": "glm-5.2",
     "name": "GLM-5.2",
     "reasoning": true,
