@@ -148,7 +148,7 @@ function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | unde
     if (o.thinkingLevelMap && typeof o.thinkingLevelMap === "object") {
       const m: Record<string, string | null> = {};
       for (const [k, v] of Object.entries(o.thinkingLevelMap as Record<string, unknown>)) {
-        if (v === null || typeof v === "string") m[k] = v;
+        if (v === null || typeof v === "string") m[k] = typeof v === "string" ? v : null;
       }
       if (Object.keys(m).length > 0) parsed.thinkingLevelMap = m;
     }

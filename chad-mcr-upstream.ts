@@ -1,4 +1,4 @@
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 // `typebox` is aliased by pi's extension loader (jiti) to the bundled copy at
 // runtime, so this single-file extension stays dependency-free when installed
 // via `pi install npm:@neuralwatt/pi-mcr-extension`. For `vitest` it resolves
@@ -913,7 +913,7 @@ export default function (pi: ExtensionAPI) {
       "X-NW-Conversation-ID": CONV_ID_ENV,
       "X-NW-MCR-Ext-Version": EXT_VERSION_ENV,
     },
-    models: NEURALWATT_MODELS.map((m) => ({ ...m, compat: NEURALWATT_COMPAT })),
+    models: NEURALWATT_MODELS.map((m) => ({ ...m, input: [...m.input], compat: NEURALWATT_COMPAT })),
   });
 
   // ── mcr_lookup placeholder stub (inference_frontend#4039) ──
@@ -1231,7 +1231,7 @@ export default function (pi: ExtensionAPI) {
     // before it gets stale.
     markStreamProducing(ctx);
 
-    const msg = event.message as Record<string, unknown>;
+    const msg = event.message as unknown as Record<string, unknown>;
 
     const mcrFromBody = extractMCRFromBody(msg);
     if (mcrFromBody) {
@@ -1314,7 +1314,7 @@ export default function (pi: ExtensionAPI) {
     const belowAnchorFloor = userMsgCount < MCR_ANCHOR_USER_MESSAGES;
 
     const [dropStart, dropEnd] = computeDropRange(
-      event.messages as Array<{ type: string }>,
+      event.messages as unknown as Array<{ type: string }>,
       state.safeDropBefore,
       convIdActive,
     );

@@ -1,10 +1,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { Api, Provider } from "@earendil-works/pi-ai";
 import { consumePendingMCR, makeProviderConfig } from "./index";
 import chadFactory from "./chad-mcr-upstream";
 
 // Thin wrapper that delegates to Chad's upstream @neuralwatt/pi-mcr-extension
-// with runtime patches that are purely visual — Chad's functional behavior
-// (context-drop, session_fp, headers, conversation-id) runs unmodified.
+// with runtime patches that preserve Chad's functional behavior while adapting
+// its provider types to the current pi API.
 //
 //   1. Proxy pi: registerProvider("neuralwatt", ...) stripped of
 //      baseUrl/api/models, env-var values $-prefixed. Then we re-register
@@ -52,7 +53,13 @@ export default function (pi: ExtensionAPI) {
   // because his package targets a standalone install where he owns the full
   // provider registration.
   const proxy: ExtensionAPI = Object.create(pi);
-  proxy.registerProvider = (name: string, config: any) => {
+  proxy.registerProvider = ((nameOrProvider: unknown, config?: any) => {
+    if (typeof nameOrProvider !== "string") {
+      pi.registerProvider(nameOrProvider as Provider<Api>);
+      return;
+    }
+
+    const name = nameOrProvider;
     if (name === "neuralwatt") {
       const { apiKey, headers } = config;
       const patchedHeaders: Record<string, string> = {};
@@ -72,7 +79,7 @@ export default function (pi: ExtensionAPI) {
     } else {
       pi.registerProvider(name, config);
     }
-  };
+  }) as ExtensionAPI["registerProvider"];
 
   // ── Invoke Chad's factory with the proxy (skip if already loaded) ──────
   //
