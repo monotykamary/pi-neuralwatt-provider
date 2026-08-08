@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { cleanStalePatchEntries, updateDeprecatedModels, extractCustomPatchOverrides, mergePatchEntries } from "../scripts/update-models.js";
+import { cleanStalePatchEntries, updateDeprecatedModels, extractCustomPatchOverrides, mergePatchEntries, deriveThinkingLevelMap, transformModel, cleanModelForJson } from "../scripts/update-models.js";
 
 // The sync script must keep a patch.json entry alive for exactly as long as
 // its model: entries for upstream models, custom (hidden) models, AND models
@@ -188,3 +188,162 @@ describe("update-models.js custom-model promotion", () => {
     expect(extractCustomPatchOverrides(customModel, upstreamModel)).toBeUndefined();
   });
 });
+
+describe("update-models.js metadata.reasoning → thinkingLevelMap derivation", () => {
+  // The exact block shape the NeuralWatt portal now serves (from Joey's launch
+  // note: https://portal.neuralwatt.com/models/glm-5.2).
+  const GLM52_BLOCK = {
+    mandatory: false,
+    default_enabled: true,
+    supported_efforts: ["max", "high", "none"],
+    default_effort: "max",
+    accepted_efforts: ["max", "xhigh", "high", "medium", "low", "minimal", "none"],
+    effort_aliases: { xhigh: "max", medium: "high", low: "high", minimal: "none" },
+  };
+
+  it("derives glm-5.2's palette: canonical levels visible, alias-only levels hidden", () => {
+    expect(deriveThinkingLevelMap(GLM52_BLOCK)).toEqual({
+      off: "none",
+      minimal: null,
+      low: null,
+      medium: null,
+      high: "high",
+      xhigh: null,
+      max: "max",
+    });
+  });
+
+  it("mandatory reasoning hides off (kimi-k3 shape)", () => {
+    const map = deriveThinkingLevelMap({
+      mandatory: true,
+      default_enabled: true,
+      supported_efforts: ["low", "high", "max"],
+      default_effort: "high",
+      accepted_efforts: ["low", "high", "max"],
+      effort_aliases: {},
+    });
+    expect(map).toEqual({ off: null, minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" });
+  });
+
+  it("falls back to accepted_efforts for a native none (off → 'none')", () => {
+    const map = deriveThinkingLevelMap({
+      mandatory: false,
+      default_enabled: true,
+      supported_efforts: ["high"],
+      accepted_efforts: ["high", "none"],
+    });
+    expect(map).toEqual({ off: "none", minimal: null, low: null, medium: null, high: "high", xhigh: null, max: null });
+  });
+
+  it("omits the off key when disabled by default and no none effort exists (omit = off)", () => {
+    const map = deriveThinkingLevelMap({
+      mandatory: false,
+      default_enabled: false,
+      supported_efforts: ["high"],
+      accepted_efforts: ["high"],
+    });
+    expect(map).toBeDefined();
+    expect("off" in map!).toBe(false);
+    expect(map!.high).toBe("high");
+  });
+
+  it("hides off when enabled by default with no way to disable", () => {
+    const map = deriveThinkingLevelMap({
+      mandatory: false,
+      default_enabled: true,
+      supported_efforts: ["high"],
+      accepted_efforts: ["high"],
+    });
+    expect(map!.off).toBe(null);
+  });
+
+  it("deepseek-like alias-only medium stays hidden (clamp resolves it up to high)", () => {
+    const map = deriveThinkingLevelMap({
+      mandatory: false,
+      default_enabled: true,
+      supported_efforts: ["none", "low", "high", "max"],
+      accepted_efforts: ["none", "low", "medium", "high", "max"],
+      effort_aliases: { medium: "high" },
+    });
+    expect(map).toEqual({ off: "none", minimal: null, low: "low", medium: null, high: "high", xhigh: null, max: "max" });
+  });
+
+  it("returns undefined for missing or boolean-only reasoning blocks", () => {
+    expect(deriveThinkingLevelMap(undefined)).toBeUndefined();
+    expect(deriveThinkingLevelMap(null)).toBeUndefined();
+    expect(deriveThinkingLevelMap({})).toBeUndefined();
+    expect(deriveThinkingLevelMap({ supported_efforts: ["none"] })).toBeUndefined();
+    expect(deriveThinkingLevelMap({ supported_efforts: ["default", "auto"] })).toBeUndefined();
+    expect(deriveThinkingLevelMap({ supported_efforts: "high" })).toBeUndefined();
+  });
+
+  it("skips migrating a custom thinkingLevelMap that matches the API-derived one", () => {
+    const mapFromBlock = deriveThinkingLevelMap(GLM52_BLOCK)!;
+    const custom = {
+      id: "m",
+      name: "M",
+      reasoning: true,
+      cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+      // Same map, deliberately shuffled key order — migration must be suppressed.
+      thinkingLevelMap: Object.fromEntries(Object.entries(mapFromBlock).reverse()),
+    };
+    const upstream = {
+      id: "m",
+      name: "M",
+      reasoning: true,
+      cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+      thinkingLevelMap: mapFromBlock,
+    };
+    expect(extractCustomPatchOverrides(custom, upstream)).toBeUndefined();
+  });
+
+  it("transformModel wires metadata.reasoning into the catalog entry", () => {
+    const apiModel = {
+      id: "glm-5.2",
+      metadata: {
+        display_name: "GLM 5.2",
+        pricing: { input_per_million: 1, output_per_million: 2 },
+        capabilities: { reasoning: true, reasoning_effort: true, vision: false },
+        limits: { max_context_length: 200000, max_output_tokens: 131072 },
+        reasoning: GLM52_BLOCK,
+      },
+    };
+    const model = transformModel(apiModel);
+    expect(model.thinkingLevelMap).toEqual({
+      off: "none", minimal: null, low: null, medium: null, high: "high", xhigh: null, max: "max",
+    });
+    expect(model.compat).toEqual({ supportsReasoningEffort: true });
+    // cleanModelForJson must not strip the derived map from models.json output.
+    expect(cleanModelForJson(model).thinkingLevelMap).toEqual(model.thinkingLevelMap);
+  });
+
+  it("transformModel leaves thinkingLevelMap off non-reasoning models", () => {
+    const model = transformModel({
+      id: "plain",
+      metadata: { capabilities: { reasoning: false }, reasoning: { supported_efforts: ["high"] } },
+    });
+    expect(model.reasoning).toBe(false);
+    expect("thinkingLevelMap" in model).toBe(false);
+  });
+
+  it("still migrates a custom thinkingLevelMap that deviates from the API-derived one", () => {
+    const custom = {
+      id: "m",
+      name: "M",
+      reasoning: true,
+      cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+      thinkingLevelMap: { minimal: null, low: "low", medium: "high", high: "high", max: "max" },
+    };
+    const upstream = {
+      id: "m",
+      name: "M",
+      reasoning: true,
+      cost: { input: 0.1, output: 0.2, cacheRead: 0, cacheWrite: 0 },
+      thinkingLevelMap: deriveThinkingLevelMap(GLM52_BLOCK),
+    };
+    expect(extractCustomPatchOverrides(custom, upstream)).toEqual({
+      thinkingLevelMap: custom.thinkingLevelMap,
+    });
+  });
+});
+

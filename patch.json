@@ -62,15 +62,6 @@
   },
   "glm-5.2": {
     "maxTokens": 131072,
-    "thinkingLevelMap": {
-      "off": "minimal",
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    },
     "compat": {
       "chatTemplateKwargs": {
         "clear_thinking": false
@@ -85,15 +76,6 @@
   },
   "glm-5.2-flex": {
     "maxTokens": 131072,
-    "thinkingLevelMap": {
-      "off": "minimal",
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    },
     "compat": {
       "chatTemplateKwargs": {
         "clear_thinking": false
@@ -101,15 +83,6 @@
     }
   },
   "glm-5.2-short": {
-    "thinkingLevelMap": {
-      "off": "minimal",
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    },
     "compat": {
       "chatTemplateKwargs": {
         "clear_thinking": false
@@ -117,15 +90,6 @@
     }
   },
   "glm-5.2-short-flex": {
-    "thinkingLevelMap": {
-      "off": "minimal",
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    },
     "compat": {
       "chatTemplateKwargs": {
         "clear_thinking": false

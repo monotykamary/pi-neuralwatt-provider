@@ -17,7 +17,8 @@
  * Merge order: models.json → apply patch.json → merge custom-models.json
  *
  * The API now provides pricing, reasoning, vision, developer_role, reasoning_effort,
- * and max_images in the metadata field, so patch.json should be mostly empty.
+ * max_images, and native reasoning levels (metadata.reasoning) in the metadata
+ * field, so patch.json should only hold deliberate deviations from API data.
  */
 
 import fs from 'fs';
@@ -162,6 +163,65 @@ function resolveDisplayName(apiModel) {
     .join(' ');
 }
 
+// pi thinking levels, ordered low→high. "off" is handled separately (it maps
+// onto a native "none" effort / omitted effort / hidden, never a named level).
+const PI_THINKING_LEVELS = ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+
+/**
+ * Derive pi's thinkingLevelMap from the API's metadata.reasoning block:
+ *   { mandatory, default_enabled, supported_efforts, default_effort,
+ *     accepted_efforts, effort_aliases }
+ *
+ * Only canonical supported_efforts become visible levels. Alias-only levels
+ * (effort_aliases keys absent from supported_efforts) stay hidden (null):
+ * pi's clampThinkingLevel up-clamps a hidden selection to the next visible
+ * level, which is exactly the native level the alias would have resolved to.
+ *
+ * The "off" entry resolves to:
+ *   - null   when reasoning is mandatory ("off" hidden — nothing to disable to)
+ *   - "none" when the API accepts a native "none" effort (explicit disable)
+ *   - absent when thinking is disabled by default (omitting the effort = off)
+ *   - null   otherwise (enabled by default and no way to turn it off)
+ *
+ * Returns undefined when the block is missing or exposes no canonical pi
+ * levels (boolean-only thinking) — the catalog entry then stays as before
+ * (pi default 5 levels), and patch.json remains the override layer.
+ */
+function deriveThinkingLevelMap(reasoning) {
+  if (!reasoning || typeof reasoning !== 'object' || Array.isArray(reasoning)) return undefined;
+
+  const supported = Array.isArray(reasoning.supported_efforts) ? reasoning.supported_efforts : [];
+  const accepted = Array.isArray(reasoning.accepted_efforts) ? reasoning.accepted_efforts : supported;
+  const canonical = new Set(supported.filter((e) => PI_THINKING_LEVELS.includes(e)));
+  if (canonical.size === 0) return undefined;
+
+  const map = {};
+  if (reasoning.mandatory === true) {
+    map.off = null;
+  } else if (accepted.includes('none')) {
+    map.off = 'none';
+  } else if (reasoning.default_enabled !== false) {
+    map.off = null;
+  }
+  for (const level of PI_THINKING_LEVELS) {
+    map[level] = canonical.has(level) ? level : null;
+  }
+  return map;
+}
+
+/**
+ * Key-order-insensitive equality for thinkingLevelMap entries. Values compare
+ * strictly (undefined vs null vs string differ: xhigh/max visibility and the
+ * off-wire behavior all hinge on the distinction).
+ */
+function thinkingLevelMapsEqual(a, b) {
+  if (!a || !b) return a === b;
+  const keysA = Object.keys(a);
+  const keysB = Object.keys(b);
+  if (keysA.length !== keysB.length) return false;
+  return keysA.every((k) => Object.prototype.hasOwnProperty.call(b, k) && a[k] === b[k]);
+}
+
 /**
  * Transform API model to local format using metadata from the API.
  *
@@ -170,6 +230,7 @@ function resolveDisplayName(apiModel) {
  *   metadata.pricing.output_per_million      → cost.output
  *   metadata.pricing.cached_input_per_million → cost.cacheRead
  *   metadata.capabilities.reasoning          → reasoning
+ *   metadata.reasoning                       → thinkingLevelMap (see deriveThinkingLevelMap)
  *   metadata.capabilities.vision            → input: ["text", "image"]
  *   metadata.capabilities.developer_role     → compat.supportsDeveloperRole
  *   metadata.capabilities.reasoning_effort   → compat.supportsReasoningEffort
@@ -232,6 +293,17 @@ function transformModel(apiModel) {
     model.vision = { maxImagesPerRequest: limits.max_images };
   }
 
+  // Thinking-level palette from metadata.reasoning (provider-owned since the
+  // portal shipped per-model reasoning blocks). patch.json thinkingLevelMap
+  // entries still win by replacement — keep them only for deliberate
+  // deviations from this derivation.
+  if (hasReasoning) {
+    const thinkingLevelMap = deriveThinkingLevelMap(meta.reasoning);
+    if (thinkingLevelMap) {
+      model.thinkingLevelMap = thinkingLevelMap;
+    }
+  }
+
   return model;
 }
 
@@ -275,10 +347,12 @@ function applyPatchToModel(model, overrides) {
  * home for per-model overrides) instead of being silently dropped by the
  * duplicate cleanup below.
  *
- * The upstream API is authoritative for pricing, limits, and the compat flags
- * it directly exposes (developer_role, reasoning_effort). Only fields the API
- * does NOT express (or expresses differently) are migrated:
- *  - thinkingLevelMap: never in the API, always migrated.
+ * The upstream API is authoritative for pricing, limits, the compat flags
+ * it directly exposes (developer_role, reasoning_effort), and — since the
+ * portal shipped metadata.reasoning — the thinking-level palette. Only fields
+ * the API does NOT express (or expresses differently) are migrated:
+ *  - thinkingLevelMap: migrated only when the custom map deviates from what
+ *    the API's reasoning block derives (same map → provider-owned, drop it).
  *  - compat: flags absent from, or differing vs, the upstream compat model.
  *  - vision: limits the API doesn't already provide.
  *
@@ -287,7 +361,11 @@ function applyPatchToModel(model, overrides) {
 function extractCustomPatchOverrides(customModel, upstreamModel) {
   const overrides = {};
 
-  if (customModel.thinkingLevelMap && Object.keys(customModel.thinkingLevelMap).length > 0) {
+  if (
+    customModel.thinkingLevelMap &&
+    Object.keys(customModel.thinkingLevelMap).length > 0 &&
+    !thinkingLevelMapsEqual(customModel.thinkingLevelMap, upstreamModel?.thinkingLevelMap)
+  ) {
     overrides.thinkingLevelMap = customModel.thinkingLevelMap;
   }
 
@@ -401,7 +479,7 @@ function updateReadme(models) {
  * Keeps the full model spec (pricing, compat, vision) since these now come from the API.
  */
 function cleanModelForJson(model) {
-  const ALLOWED = ['id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens', 'compat', 'vision'];
+  const ALLOWED = ['id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens', 'compat', 'vision', 'thinkingLevelMap'];
   const clean = {};
   for (const key of ALLOWED) {
     if (key in model) clean[key] = model[key];
@@ -583,6 +661,31 @@ async function main() {
     const deprecated = updateDeprecatedModels(MODELS_JSON_PATH, cleanModels);
     const deprecatedIds = new Set(Object.keys(deprecated));
 
+    // Advisory: patch thinkingLevelMap entries vs what the API's reasoning
+    // metadata now derives. Matches are removable from patch.json (derivation
+    // reproduces them); deviations are deliberate curation (or staleness to
+    // review). Pure informational — patch.json always wins at runtime.
+    const derivedById = new Map(transformedModels.map(m => [m.id, m.thinkingLevelMap]));
+    const matchingMaps = [];
+    const deviatingMaps = [];
+    for (const [id, entry] of Object.entries(patch)) {
+      if (!entry?.thinkingLevelMap) continue;
+      const derived = derivedById.get(id);
+      if (derived === undefined) continue; // no API block (yet) — patch is the only source
+      (thinkingLevelMapsEqual(entry.thinkingLevelMap, derived) ? matchingMaps : deviatingMaps).push(id);
+    }
+    if (matchingMaps.length > 0 || deviatingMaps.length > 0) {
+      console.log('\nPatch thinkingLevelMap vs API-derived (metadata.reasoning):');
+      for (const id of matchingMaps) {
+        console.log(`  ✓ ${id}: matches derivation — patch entry's map is removable`);
+      }
+      for (const id of deviatingMaps) {
+        console.log(`  ⚠ ${id}: deviates from derivation (kept; patch wins)`);
+        console.log(`      patch:   ${JSON.stringify(patch[id].thinkingLevelMap)}`);
+        console.log(`      derived: ${JSON.stringify(derivedById.get(id))}`);
+      }
+    }
+
     // Clean stale entries from patch.json (hidden models legitimately have
     // patches despite being absent from the API; grace-period models keep
     // theirs until eviction).
@@ -691,4 +794,13 @@ if (invokedDirectly) {
   main();
 }
 
-export { cleanStalePatchEntries, updateDeprecatedModels, extractCustomPatchOverrides, mergePatchEntries };
+export {
+  cleanStalePatchEntries,
+  updateDeprecatedModels,
+  extractCustomPatchOverrides,
+  mergePatchEntries,
+  deriveThinkingLevelMap,
+  thinkingLevelMapsEqual,
+  transformModel,
+  cleanModelForJson,
+};

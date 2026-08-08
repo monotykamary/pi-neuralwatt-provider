@@ -1,12 +1,12 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { buildModels, getPendingState, resetSessionState, streamNeuralwatt } from "../index";
+import { buildModels, deriveThinkingLevelMap, getPendingState, resetSessionState, streamNeuralwatt } from "../index";
 import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/pi-ai/compat";
 import patchesData from "../patch.json" with { type: "json" };
 import modelsData from "../models.json" with { type: "json" };
 import customModelsData from "../custom-models.json" with { type: "json" };
 
 // A GLM-5.2 model shaped exactly as the extension registers it (embedded
-// models.json base + patch.json thinkingLevelMap).
+// models.json base — thinkingLevelMap derived from metadata.reasoning).
 const glm52 = {
   id: "glm-5.2",
   provider: "neuralwatt",
@@ -14,7 +14,7 @@ const glm52 = {
   input: ["text"],
   compat: { supportsDeveloperRole: false, supportsReasoningEffort: true },
   thinkingLevelMap: {
-    off: "minimal",
+    off: "none",
     minimal: null,
     low: null,
     medium: null,
@@ -161,10 +161,15 @@ describe("streamNeuralwatt thinking-level forwarding", () => {
   });
 });
 
-describe("GLM-5.2 family patch.json thinkingLevelMap", () => {
-  const patches = patchesData as Record<string, any>;
+// GLM-5.2 family's palette is provider-owned now: models.json carries the
+// thinkingLevelMap derived from metadata.reasoning (see update-models.js), and
+// patch.json no longer restates it. These assertions run against the effective
+// catalog (base + patch) so a sync regression can't silently change what's
+// registered.
+describe("GLM-5.2 family effective thinkingLevelMap", () => {
+  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any);
   const expectedMap = {
-    off: "minimal",
+    off: "none",
     minimal: null,
     low: null,
     medium: null,
@@ -175,15 +180,21 @@ describe("GLM-5.2 family patch.json thinkingLevelMap", () => {
 
   for (const id of ["glm-5.2", "glm-5.2-flex", "glm-5.2-short", "glm-5.2-short-flex"]) {
     it(`${id} maps onto GLM-5.2's three real states (skip / high / max)`, () => {
-      expect(patches[id]?.thinkingLevelMap).toEqual(expectedMap);
+      expect(catalog.find((m: any) => m.id === id)?.thinkingLevelMap).toEqual(expectedMap);
     });
   }
 
-  it("glm-5.2 off maps to minimal (skip), not the unset default (max)", () => {
+  it("glm-5.2 off maps to none (skip), not the unset default (max)", () => {
     // GLM-5.2's default when reasoning_effort is absent is `max` (deepest).
-    // Without an explicit off→minimal, picking "off" would maximize thinking
+    // Without an explicit off→none, picking "off" would maximize thinking
     // instead of disabling it — the exact "off does nothing" symptom.
-    expect(patches["glm-5.2"]?.thinkingLevelMap?.off).toBe("minimal");
+    expect(catalog.find((m: any) => m.id === "glm-5.2")?.thinkingLevelMap?.off).toBe("none");
+  });
+
+  it("patch.json no longer needs to restate the GLM-5.2 family maps", () => {
+    for (const id of ["glm-5.2", "glm-5.2-flex", "glm-5.2-short", "glm-5.2-short-flex"]) {
+      expect(patchesData[id]?.thinkingLevelMap).toBeUndefined();
+    }
   });
 });
 
@@ -447,3 +458,46 @@ describe("catalog regression: kimi-k3 visible thinking levels", () => {
     expect(piVisibleLevels(k3)).toEqual(["low", "high", "max"]);
   });
 });
+
+// Runtime parity: index.ts re-implements the same derivation as
+// scripts/update-models.js (live-refresh path vs sync path — see the comment on
+// transformApiModel). Both consume the portal's metadata.reasoning block.
+describe("runtime metadata.reasoning → thinkingLevelMap derivation", () => {
+  // Exact block from NeuralWatt's launch note (portal.neuralwatt.com/models/glm-5.2).
+  const GLM52_BLOCK = {
+    mandatory: false,
+    default_enabled: true,
+    supported_efforts: ["max", "high", "none"],
+    default_effort: "max",
+    accepted_efforts: ["max", "xhigh", "high", "medium", "low", "minimal", "none"],
+    effort_aliases: { xhigh: "max", medium: "high", low: "high", minimal: "none" },
+  };
+
+  it("derives glm-5.2's palette identically to the sync script", () => {
+    expect(deriveThinkingLevelMap(GLM52_BLOCK)).toEqual({
+      off: "none",
+      minimal: null,
+      low: null,
+      medium: null,
+      high: "high",
+      xhigh: null,
+      max: "max",
+    });
+  });
+
+  it("mandatory reasoning hides off", () => {
+    const map = deriveThinkingLevelMap({
+      mandatory: true,
+      supported_efforts: ["low", "high", "max"],
+      accepted_efforts: ["low", "high", "max"],
+    })!;
+    expect(map.off).toBe(null);
+    expect(map.max).toBe("max");
+  });
+
+  it("returns undefined for missing / granularity-free blocks", () => {
+    expect(deriveThinkingLevelMap(undefined)).toBeUndefined();
+    expect(deriveThinkingLevelMap({ supported_efforts: ["none"] })).toBeUndefined();
+  });
+});
+

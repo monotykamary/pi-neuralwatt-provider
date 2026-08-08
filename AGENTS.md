@@ -16,7 +16,7 @@ When a model needs overrides, new properties, or corrections, edit the appropria
 
 | File | Purpose |
 |------|---------|
-| `patch.json` | Per-model overrides keyed by model ID. Add reasoning flags, compat settings, pricing corrections, thinking level maps, etc. Applied on top of `models.json` at runtime and for README generation. |
+| `patch.json` | Per-model overrides keyed by model ID. Add reasoning flags, compat settings, pricing corrections, etc. Applied on top of `models.json` at runtime and for README generation. Only needs a `thinkingLevelMap` when deliberately deviating from the API's `metadata.reasoning` derivation (a matching map is dead weight — the sync's advisory report flags those). |
 | `custom-models.json` | Models that don't exist in the provider API (hidden models, router endpoints, cross-provider aliases). Merged after patch. Format: array of full model objects (same schema as `models.json` entries). |
 | `index.ts` | Provider extension code. |
 | `scripts/update-models.js` | The sync script itself (edit only if changing how models are fetched/transformed). |

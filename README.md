@@ -135,12 +135,12 @@ pi
 
 ### Compat Settings
 
-Neuralwatt's API provides compatibility and capability metadata (pricing, reasoning, vision, `developer_role`, `reasoning_effort`, `max_images`) directly in the `/v1/models` response. The `update-models.js` script reads these and writes them into `models.json`. Only genuinely incorrect API data needs a manual override in `patch.json`.
+Neuralwatt's API provides compatibility and capability metadata (pricing, reasoning, vision, `developer_role`, `reasoning_effort`, `max_images`, native reasoning levels in `metadata.reasoning`) directly in the `/v1/models` response. The `update-models.js` script reads these and writes them into `models.json`. Only genuinely incorrect API data — or deliberate deviations from the derived thinking-level maps — needs a manual override in `patch.json`.
 
 Currently configured compat settings:
 
 - **`supportsDeveloperRole: false`** — All models. vLLM doesn't support the `developer` role; pi sends system prompts as `system` messages instead.
-- **`supportsReasoningEffort: true`** — GLM-5.2. Sends the `reasoning_effort` parameter (maps pi's `/reasoning` levels onto GLM-5.2's native `high`/`max`/`minimal` via `thinkingLevelMap`).
+- **`supportsReasoningEffort: true`** — GLM-5.2, Kimi K3, DeepSeek V4 Flash. Sends the `reasoning_effort` parameter (maps pi's `/reasoning` levels onto each model's native efforts — e.g. GLM-5.2's `high`/`max`/`none` — via the API-derived `thinkingLevelMap`).
 - **`requiresReasoningContentOnAssistantMessages: true`** — Kimi K2.6/K2.7 reasoning variants. Pi-ai replays the model's prior-turn `reasoning` field on every assistant message so the model can continue its chain-of-thought across turns. All Neuralwatt reasoning models get this Layer-A replay automatically (the gateway aliases `reasoning` ↔ `reasoning_content`); this flag adds an empty `reasoning_content` scaffold for turns with no thinking block.
 - **`chatTemplateKwargs`** — Raw `chat_template_kwargs` merged into every request via pi-ai's `onPayload` hook, mirroring vLLM's request field of the same name. Used to opt reasoning models into **full-history reasoning preservation** (vLLM's Jinja templates otherwise trim older assistant reasoning in alternating chat). The flags are template-level and family-specific — NOT a generic boolean:
   - **Kimi K2.6 / K2.7** → `{ "preserve_thinking": true }` — keeps the full reasoning history across turns (doc-backed; behavioral E2E: 0/6 → 6/6 recall).
@@ -185,7 +185,7 @@ For reasoning models, control thinking depth:
 /reasoning high
 ```
 
-Values: `none`, `low`, `medium`, `high`
+The selectable levels are per-model: each model's `metadata.reasoning` block (native efforts, aliases, `mandatory`/`default_enabled`) is compiled into a `thinkingLevelMap` at sync time and at runtime live-refresh, so `/model` only offers levels the model actually supports (e.g. GLM-5.2 offers `off`/`high`/`max`; a mandatory-reasoning model hides `off`). Selecting a hidden alias level isn't needed — pi clamps up to the native level the alias resolves to.
 
 Full-history reasoning preservation is **on by default** for Kimi K2.6/K2.7 and the GLM-5.2 family (see [Compat Settings](#compat-settings)). Override it per-model via [Model Overrides](#model-overrides).
 

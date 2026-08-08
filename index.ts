@@ -218,6 +218,7 @@ interface NeuralwattModel {
   contextWindow: number;
   maxTokens: number;
   thinkingLevelMap?: {
+    off?: string | null;
     minimal?: string | null;
     low?: string | null;
     medium?: string | null;
@@ -383,6 +384,52 @@ const CACHE_DIR = path.join(getAgentDir(), "cache");
 const CACHE_PATH = path.join(CACHE_DIR, `${PROVIDER_ID}-models.json`);
 const LIVE_FETCH_TIMEOUT_MS = 8000;
 
+// pi thinking levels, ordered low→high. "off" is handled separately (it maps
+// onto a native "none" effort / omitted effort / hidden, never a named level).
+const PI_THINKING_LEVELS = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+
+/**
+ * Derive pi's thinkingLevelMap from the API's metadata.reasoning block:
+ *   { mandatory, default_enabled, supported_efforts, default_effort,
+ *     accepted_efforts, effort_aliases }
+ *
+ * Only canonical supported_efforts become visible levels. Alias-only levels
+ * (effort_aliases keys absent from supported_efforts) stay hidden (null):
+ * pi's clampThinkingLevel up-clamps a hidden selection to the next visible
+ * level, which is exactly the native level the alias would have resolved to.
+ *
+ * The "off" entry resolves to:
+ *   - null   when reasoning is mandatory ("off" hidden — nothing to disable to)
+ *   - "none" when the API accepts a native "none" effort (explicit disable)
+ *   - absent when thinking is disabled by default (omitting the effort = off)
+ *   - null   otherwise (enabled by default and no way to turn it off)
+ *
+ * Returns undefined when the block is missing or exposes no canonical pi
+ * levels (boolean-only thinking) — the catalog entry then stays as before
+ * (pi default 5 levels), and patch.json remains the override layer.
+ */
+export function deriveThinkingLevelMap(reasoning: any): NeuralwattModel["thinkingLevelMap"] {
+  if (!reasoning || typeof reasoning !== "object" || Array.isArray(reasoning)) return undefined;
+
+  const supported: string[] = Array.isArray(reasoning.supported_efforts) ? reasoning.supported_efforts : [];
+  const accepted: string[] = Array.isArray(reasoning.accepted_efforts) ? reasoning.accepted_efforts : supported;
+  const canonical = new Set(supported.filter((e) => (PI_THINKING_LEVELS as readonly string[]).includes(e)));
+  if (canonical.size === 0) return undefined;
+
+  const map: NonNullable<NeuralwattModel["thinkingLevelMap"]> = {};
+  if (reasoning.mandatory === true) {
+    map.off = null;
+  } else if (accepted.includes("none")) {
+    map.off = "none";
+  } else if (reasoning.default_enabled !== false) {
+    map.off = null;
+  }
+  for (const level of PI_THINKING_LEVELS) {
+    map[level] = canonical.has(level) ? level : null;
+  }
+  return map;
+}
+
 /** Transform a model from the Neuralwatt /v1/models API using metadata. */
 function transformApiModel(apiModel: any): NeuralwattModel | null {
   const meta = apiModel.metadata || {};
@@ -429,6 +476,17 @@ function transformApiModel(apiModel: any): NeuralwattModel | null {
 
   if (hasVision && limits.max_images != null) {
     model.vision = { maxImagesPerRequest: limits.max_images };
+  }
+
+  // Same derivation as scripts/update-models.js (the two transformModel
+  // implementations mirror each other): metadata.reasoning → thinkingLevelMap.
+  // patch.json maps still win by replacement in buildModels; this fills the gap
+  // for models whose palette was never curated by hand.
+  if (hasReasoning) {
+    const thinkingLevelMap = deriveThinkingLevelMap(meta.reasoning);
+    if (thinkingLevelMap) {
+      model.thinkingLevelMap = thinkingLevelMap;
+    }
   }
 
   return model;
