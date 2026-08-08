@@ -33,6 +33,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 |-------|---------|--------|-----------|-----------|------------|
 | DeepSeek V4 Flash | 1.0M | ❌ | ✅ | $0.14 | $0.28 |
 | DeepSeek V4 Flash (0731 Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.28 |
+| DeepSeek V4 Flash (flex) | 1.0M | ❌ | ✅ | $0.14 | $0.28 |
 | DeepSeek V4 Flash 0731 (Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.28 |
 | Gemma 4 31B | 262K | ✅ | ✅ | $0.14 | $0.42 |
 | GLM-5.2 | 1.0M | ❌ | ✅ | $1.45 | $4.50 |
@@ -44,7 +45,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | GLM-5.2 (short) | 200K | ❌ | ✅ | $1.45 | $4.50 |
 | Kimi K2.7 Code | 262K | ✅ | ✅ | $0.95 | $4.00 |
 | Kimi K2.7 Code (flex) | 262K | ✅ | ✅ | $0.95 | $4.00 |
-| Kimi K2.7 Code Fast | 262K | ✅ | ❌ | $0.95 | $4.00 |
+| Kimi K2.7 Code Fast | 262K | ✅ | ✅ | $0.95 | $4.00 |
 | Kimi K3 | 1.0M | ✅ | ✅ | $3.00 | $15.00 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $15.00 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.29 | $1.15 |

@@ -40,6 +40,26 @@
     }
   },
   {
+    "id": "deepseek-v4-flash-flex",
+    "name": "DeepSeek V4 Flash (flex)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.028,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 65536,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  {
     "id": "deepseek-ai/DeepSeek-V4-Flash",
     "name": "DeepSeek V4 Flash 0731 (Canary)",
     "reasoning": true,
@@ -271,7 +291,7 @@
   {
     "id": "kimi-k2.7-code-fast",
     "name": "Kimi K2.7 Code Fast",
-    "reasoning": false,
+    "reasoning": true,
     "input": [
       "text",
       "image"
