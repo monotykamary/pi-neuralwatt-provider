@@ -1813,8 +1813,9 @@ export default function (pi: ExtensionAPI) {
     });
   });
 
-  pi.on("agent_end", async (_event, ctx) => {
-    // Fetch quota once after the agent loop finishes to reflect updated balance
+  pi.on("agent_settled", async (_event, ctx) => {
+    // Fetch quota once the run has fully settled (no automatic retry, compaction,
+    // or queued continuation can follow) to reflect the updated balance
     if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
       const quota = await fetchQuota(cachedApiKey || "");
       if (quota) {
