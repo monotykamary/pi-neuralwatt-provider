@@ -11,8 +11,62 @@ export interface SimpleStreamOptions {
   onPayload?: (params: any, model: any) => any | Promise<any>;
 }
 
-export interface AssistantMessageEventStream {
-  end: (result?: any) => void;
+// Minimal runtime-compatible assistant-message event stream (same queue +
+// push/end/result + async-iteration semantics as pi-ai's EventStream).
+export class AssistantMessageEventStream {
+  private queue: any[] = [];
+  private waiting: Array<(r: { value: any; done: boolean }) => void> = [];
+  private done = false;
+  private finalResultPromise: Promise<any>;
+  private resolveFinalResult!: (value: any) => void;
+
+  constructor() {
+    this.finalResultPromise = new Promise((resolve) => {
+      this.resolveFinalResult = resolve;
+    });
+  }
+
+  push(event: any): void {
+    if (this.done) return;
+    if (event?.type === "done" || event?.type === "error") {
+      this.done = true;
+      this.resolveFinalResult(event.type === "done" ? event.message : event.error);
+    }
+    const waiter = this.waiting.shift();
+    if (waiter) waiter({ value: event, done: false });
+    else this.queue.push(event);
+  }
+
+  end(result?: any): void {
+    this.done = true;
+    if (result !== undefined) this.resolveFinalResult(result);
+    while (this.waiting.length > 0) {
+      const waiter = this.waiting.shift()!;
+      waiter({ value: undefined, done: true });
+    }
+  }
+
+  result(): Promise<any> {
+    return this.finalResultPromise;
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<any, void, unknown> {
+    while (true) {
+      if (this.queue.length > 0) {
+        yield this.queue.shift();
+      } else if (this.done) {
+        return;
+      } else {
+        const result = await new Promise<{ value: any; done: boolean }>((resolve) => this.waiting.push(resolve));
+        if (result.done) return;
+        yield result.value;
+      }
+    }
+  }
+}
+
+export function createAssistantMessageEventStream(): AssistantMessageEventStream {
+  return new AssistantMessageEventStream();
 }
 
 export const __streamCalls: Array<{ model: any; context: any; options: any }> = [];
@@ -37,7 +91,7 @@ export function streamOpenAICompletions(
   options?: SimpleStreamOptions,
 ): AssistantMessageEventStream {
   __streamCalls.push({ model, context, options });
-  return {
-    end() {},
-  };
+  const stream = new AssistantMessageEventStream();
+  queueMicrotask(() => stream.end());
+  return stream;
 }

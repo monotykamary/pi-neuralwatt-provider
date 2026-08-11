@@ -157,6 +157,19 @@ The `neuralwatt:turn-energy` event payload gains `serviceTier` and `flexDiscount
 Asked of upstream: explicit `list_cost_usd`, `discount_usd` / `flex_discount_pct`, and `queue_seconds` on the `: cost` comment (and the non-stream cost object); once present they flow into `sse_cost_raw` verbatim with no client change, and the estimate should be replaced by the real value.
 
 
+## Billed Cost Flows Into pi's Own Cost Surfaces
+
+The extension wraps the assistant-message event stream so the final `done`
+message's `usage.cost` is rewritten to the metered billed cost (data-chunk
+`cost_usd` first, `: cost` comment sum as fallback) instead of pi-ai's
+list-priced token cost — see `wrapStreamWithBilledCost` /
+`applyBilledCostToUsage`. pi computes footers, session totals and /stats by
+scanning committed entries' `usage.cost`, so after this rewrite every pi cost
+surface reflects the actual bill (flex discounts included) as soon as the
+turn finishes. One ordering caveat: the usage chunk (which pi-ai list-prices)
+arrives *before* the cost frames, so anyone reading cost mid-stream must wait
+for the tee reader to settle — hence the wrapper awaits it at `done`.
+
 ## Adding New Upstream Fields
 
 No code changes needed in either `pi-neuralwatt-provider` or `pi-tps-web`. The raw SSE payloads are persisted verbatim and replay reads from them directly. New fields in `: energy`, `: mcr-session`, or `: cost` comments automatically appear in `sse_energy_raw`, `sse_mcr_session_raw`, and `sse_cost_raw` respectively.

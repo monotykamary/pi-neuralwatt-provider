@@ -74,6 +74,7 @@
  */
 
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
+import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
 import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
@@ -1645,10 +1646,20 @@ function formatQueueWait(seconds: number): string {
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
-export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
+export async function readEnergyFromTee(
+  body: ReadableStream<Uint8Array>,
+  onCost?: (costUsd: number | undefined) => void,
+): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  // Billed cost for THIS stream. The flex/SSE data chunk's cost_usd is exact
+  // per-request; the `: cost` comment sum is the fallback (same number the
+  // turn_end energy entry reads via pendingCostUsd, which is a global
+  // accumulator — the local copy is what the stream-cost wrapper needs to
+  // isolate concurrent requests from each other).
+  let dataCostUsd: number | undefined;
+  let commentCostUsd = 0;
 
   // Per-stream flex telemetry, captured from SSE data chunks (not comments).
   // Flex requests held in the server-side queue emit heartbeat chunks —
@@ -1675,6 +1686,15 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
         if (firstHeartbeatCreated !== undefined && created) {
           pendingQueueSeconds = Math.max(0, Number(created[1]) - firstHeartbeatCreated);
         }
+      }
+    }
+    if (trimmed.includes('"cost_usd"')) {
+      try {
+        const chunk = JSON.parse(trimmed.slice(5));
+        const c = chunk?.cost_usd;
+        if (typeof c === "number" && Number.isFinite(c) && c >= 0) dataCostUsd = c;
+      } catch {
+        // Malformed cost data frame, ignore
       }
     }
     if (/"usage"\s*:\s*\{/.test(trimmed)) {
@@ -1718,6 +1738,7 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
       try {
         const cost = JSON.parse(trimmed.slice(7));
         pendingCostUsd += cost.request_cost_usd || 0;
+        commentCostUsd += cost.request_cost_usd || 0;
         pendingCostRaw = cost;
       } catch {
         // Malformed cost comment, ignore
@@ -1752,10 +1773,76 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
   }
 
   try {
+    onCost?.(dataCostUsd ?? (commentCostUsd > 0 ? commentCostUsd : undefined));
+  } catch {
+    // Non-fatal: cost observer is best-effort
+  }
+
+  try {
     reader.releaseLock();
   } catch {
     // Ignore
   }
+}
+
+/**
+ * Overwrite an assistant message's usage.cost with NeuralWatt's metered billed
+ * cost, scaling the component costs proportionally so they still sum to total.
+ * pi's footer and session totals scan usage.cost on committed entries
+ * (usage-totals), so fixing the message in-stream (before pi commits it) makes
+ * every cost surface exact for the current turn — flex discounts included.
+ */
+export function applyBilledCostToUsage(usage: any, billedUsd: number): void {
+  const c = usage?.cost;
+  if (!c) return;
+  const listTotal = typeof c.total === "number" && c.total > 0 ? c.total : 0;
+  if (listTotal > 0) {
+    const factor = billedUsd / listTotal;
+    c.input = (c.input || 0) * factor;
+    c.output = (c.output || 0) * factor;
+    c.cacheRead = (c.cacheRead || 0) * factor;
+    c.cacheWrite = (c.cacheWrite || 0) * factor;
+  } else {
+    c.input = 0;
+    c.output = 0;
+    c.cacheRead = 0;
+    c.cacheWrite = 0;
+  }
+  c.total = billedUsd;
+}
+
+/**
+ * Wrap an assistant-message event stream so that the final `done` message's
+ * usage.cost carries the metered billed cost (revealed by SSE cost/data
+ * frames) instead of the list-priced token cost pi-ai computed when parsing
+ * the usage chunk. getBilledUsd is awaited at `done`, before the event is
+ * pushed downstream — the caller resolves it after the request's tee reader
+ * has settled so the billed number is guaranteed parsed.
+ */
+export function wrapStreamWithBilledCost(
+  inner: AssistantMessageEventStream,
+  getBilledUsd: () => Promise<number | undefined>,
+): AssistantMessageEventStream {
+  const out = createAssistantMessageEventStream();
+  (async () => {
+    try {
+      for await (const event of inner) {
+        if (event.type === "done") {
+          const billed = await getBilledUsd();
+          const msg = (event as any).message;
+          if (typeof billed === "number" && Number.isFinite(billed) && billed >= 0 && msg?.usage) {
+            applyBilledCostToUsage(msg.usage, billed);
+          }
+        }
+        out.push(event as any);
+      }
+      out.end();
+    } catch {
+      // Inner stream failure mid-iteration: end downstream with whatever it saw
+      out.end();
+    }
+  })();
+  return out as AssistantMessageEventStream;
 }
 
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
@@ -1825,6 +1912,8 @@ export function streamNeuralwatt(
   // Concurrent main-agent and helper-model requests can finish in either order;
   // a global save/patch/restore stack leaves a stale wrapper installed when they
   // settle out of order. Each call now owns its interceptor and reader.
+  let requestBilledUsd: number | undefined;
+  let requestTee: Promise<void> | undefined;
   const upstreamFetch = streamOptions.fetch ?? globalThis.fetch;
   const energyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await upstreamFetch(input, init);
@@ -1832,7 +1921,11 @@ export function streamNeuralwatt(
     if (!response.body || !url.includes("/chat/completions")) return response;
 
     const [bodyForSdk, bodyForEnergy] = response.body.tee();
-    trackTeeReader(readEnergyFromTee(bodyForEnergy));
+    const teePromise = readEnergyFromTee(bodyForEnergy, (costUsd) => {
+      requestBilledUsd = costUsd;
+    });
+    requestTee = teePromise;
+    trackTeeReader(teePromise);
     return new Response(bodyForSdk, {
       headers: response.headers,
       status: response.status,
@@ -1840,12 +1933,20 @@ export function streamNeuralwatt(
     });
   };
 
-  return streamOpenAICompletions(neuralwattModel, transformedContext, {
+  const inner = streamOpenAICompletions(neuralwattModel, transformedContext, {
     ...streamOptions,
     fetch: energyFetch,
     reasoningEffort,
     apiKey,
     ...(onPayload ? { onPayload } : {}),
+  });
+
+  // Rewrite the committed message's usage.cost to the metered billed cost
+  // (flex-discounted when queued) before pi stores it — footers, session
+  // totals, and /stats then reflect what's actually billed, in real time.
+  return wrapStreamWithBilledCost(inner, async () => {
+    try { await requestTee; } catch { /* tee already swallows its own errors */ }
+    return requestBilledUsd;
   });
 }
 
