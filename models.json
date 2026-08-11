@@ -118,7 +118,7 @@
   {
     "id": "gemma-4-31b",
     "name": "Gemma 4 31B",
-    "reasoning": false,
+    "reasoning": true,
     "input": [
       "text",
       "image"
@@ -132,10 +132,20 @@
     "contextWindow": 262128,
     "maxTokens": 16384,
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
     },
     "vision": {
       "maxImagesPerRequest": 4
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": null,
+      "xhigh": null,
+      "max": "max"
     }
   },
   {
@@ -170,7 +180,7 @@
   {
     "id": "glm-5.2-fast",
     "name": "GLM-5.2 (fast)",
-    "reasoning": false,
+    "reasoning": true,
     "input": [
       "text"
     ],
@@ -185,6 +195,15 @@
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
     }
   },
   {
@@ -219,7 +238,7 @@
   {
     "id": "glm-5.2-short-fast-flex",
     "name": "GLM-5.2 (short, fast, flex)",
-    "reasoning": false,
+    "reasoning": true,
     "input": [
       "text"
     ],
@@ -234,12 +253,21 @@
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
     }
   },
   {
     "id": "glm-5.2-short-fast",
     "name": "GLM-5.2 (short, fast)",
-    "reasoning": false,
+    "reasoning": true,
     "input": [
       "text"
     ],
@@ -254,6 +282,15 @@
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
     }
   },
   {
