@@ -66,6 +66,9 @@
  *   - Energy reporting per-request (Joules, kWh, watts, duration)
  *   - Request cost reporting (USD)
  *   - Carbon/grid reporting per-request (CO₂e, grid_id, grid intensity)
+ *   - Flex tier: effective discount % + queue wait derived per request from
+ *     SSE data chunks (the API bills flex at a reduced rate but exposes no
+ *     explicit discount field — see docs/sse-payloads.md)
  *
  * @see https://neuralwatt.com
  */
@@ -646,6 +649,13 @@ interface EnergyEvent {
   sse_energy_raw?: Record<string, unknown>;
   sse_mcr_session_raw?: Record<string, unknown>;
   sse_cost_raw?: Record<string, unknown>;
+  // Derived per-request telemetry captured from SSE data chunks by the tee
+  // reader (the _est fields are computed client-side, not upstream-verbatim).
+  service_tier?: string;
+  usage_tokens?: { prompt: number; completion: number; cached_input: number };
+  queue_seconds?: number;
+  flex_discount_pct_est?: number;
+  list_cost_usd_est?: number;
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
@@ -671,6 +681,15 @@ let pendingCostUsd = 0;
 let pendingEnergyRaw: Record<string, unknown> | null = null;
 let pendingMcrSessionRaw: Record<string, unknown> | null = null;
 let pendingCostRaw: Record<string, unknown> | null = null;
+let pendingServiceTier: string | null = null;
+let pendingUsage: TeeUsageTokens | null = null;
+// Flex queue wait estimate derived from server-side chunk `created`
+// timestamps (first content-bearing chunk − first heartbeat chunk), seconds.
+let pendingQueueSeconds: number | undefined;
+// Latest-turn flex telemetry for the footer badge (sticky, latest-wins like
+// MCR fp / grid id).
+let sessionFlexDiscountPct: number | undefined;
+let sessionFlexQueueSeconds: number | undefined;
 let teeReader: Promise<void> | undefined;
 
 function trackTeeReader(reader: Promise<void>): void {
@@ -734,7 +753,7 @@ export function consumePendingMCR(): NWMCRRidge {
 
 // Exposed for testing
 export function getPendingState() {
-  return { pendingEnergyJoules, pendingCostUsd, teeReader, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw };
+  return { pendingEnergyJoules, pendingCostUsd, teeReader, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw, pendingServiceTier, pendingUsage, pendingQueueSeconds };
 }
 
 export function resetSessionState() {
@@ -748,11 +767,16 @@ export function resetSessionState() {
   sessionGridId = null;
   sessionGridIntensity = undefined;
   sessionGridCarbonSource = undefined;
+  sessionFlexDiscountPct = undefined;
+  sessionFlexQueueSeconds = undefined;
   pendingEnergyJoules = 0;
   pendingCostUsd = 0;
   pendingEnergyRaw = null;
   pendingMcrSessionRaw = null;
   pendingCostRaw = null;
+  pendingServiceTier = null;
+  pendingUsage = null;
+  pendingQueueSeconds = undefined;
   teeReader = undefined;
   // Also clear the bridge so stale data doesn't leak across tests
   const bridge = (globalThis as any)[NW_MCR_BRIDGE];
@@ -764,6 +788,8 @@ export function resetSessionState() {
 }
 
 function replayEnergyEvents(ctx: any): void {
+  sessionFlexDiscountPct = undefined;
+  sessionFlexQueueSeconds = undefined;
   sessionEnergyJoules = 0;
   sessionCostUsd = 0;
   sessionMcrFp = null;
@@ -778,6 +804,17 @@ function replayEnergyEvents(ctx: any): void {
     if (entry.type === "custom" && entry.customType === ENERGY_ENTRY_TYPE && entry.data) {
       sessionEnergyJoules += entry.data.energy_joules || 0;
       sessionCostUsd += entry.data.cost_usd || 0;
+      // Flex badge is latest-wins: restore from the most recent entry that
+      // recorded a service tier; a standard-tier turn clears it.
+      if (entry.data.service_tier === "flex") {
+        sessionFlexDiscountPct =
+          typeof entry.data.flex_discount_pct_est === "number" ? entry.data.flex_discount_pct_est : undefined;
+        sessionFlexQueueSeconds =
+          typeof entry.data.queue_seconds === "number" ? entry.data.queue_seconds : undefined;
+      } else if (typeof entry.data.service_tier === "string") {
+        sessionFlexDiscountPct = undefined;
+        sessionFlexQueueSeconds = undefined;
+      }
       // MCR state from raw SSE payloads (latest-wins, not cumulative).
       // Reads from the verbatim payloads so new upstream MCR fields
       // automatically flow through without interface or code changes.
@@ -887,26 +924,48 @@ function buildEnergyText(maxCols: number): string | undefined {
     carbonTiers.push("");
   }
 
-  // left = energy core + (carbon segment if any). Single space: carbon is part
-  // of the energy core, not a separate panel like MCR (which uses two spaces).
-  const leftWith = (carbonText: string) => (carbonText ? `${coreFull} ${carbonText}` : coreFull);
+  // Flex badge tiers: effective discount + queue wait of the latest flex
+  // request ("flex −82% · queued ~6m05s" → "flex −82%" → dropped). Most
+  // auxiliary segment — dropped after MCR but before carbon.
+  const flexTiers: string[] = [];
+  if (sessionFlexDiscountPct !== undefined) {
+    const pctTag = `flex −${sessionFlexDiscountPct}%`;
+    const q = sessionFlexQueueSeconds && sessionFlexQueueSeconds > 0
+      ? ` · queued ${formatQueueWait(sessionFlexQueueSeconds)}`
+      : "";
+    flexTiers.push(`${pctTag}${q}`, pctTag, "");
+  } else {
+    flexTiers.push("");
+  }
+  const flexFull = flexTiers[0];
+
+  // left = energy core + (carbon segment if any) + (flex badge if any).
+  // Single spaces: carbon and flex are part of the energy core, not separate
+  // panels like MCR (which uses two spaces).
+  const leftWith = (carbonText: string, flexText = "") =>
+    coreFull + (carbonText ? ` ${carbonText}` : "") + (flexText ? ` ${flexText}` : "");
 
   const candidates: string[] = [];
   const carbonFull = carbonTiers[0];
 
   if (hasEnergy) {
-    // Phase 1: drop MCR parts (carbon full, core full).
+    // Phase 1: drop MCR parts (carbon and flex full, core full).
     for (const mcrText of mcrTiers) {
-      const left = leftWith(carbonFull);
+      const left = leftWith(carbonFull, flexFull);
       const c = mcrText ? `${left}  ${mcrText}` : left;
       if (c !== candidates[candidates.length - 1]) candidates.push(c);
     }
-    // Phase 2: MCR dropped — drop carbon tiers (core full).
+    // Phase 2: MCR dropped — drop flex badge tiers (carbon full, core full).
+    for (const flexText of flexTiers.slice(1)) {
+      const c = leftWith(carbonFull, flexText);
+      if (c !== candidates[candidates.length - 1]) candidates.push(c);
+    }
+    // Phase 3: flex badge dropped — drop carbon tiers (core full).
     for (const carbonText of carbonTiers.slice(1)) {
       const c = leftWith(carbonText);
       if (c !== candidates[candidates.length - 1]) candidates.push(c);
     }
-    // Phase 3: compress energy core (carbon & MCR dropped).
+    // Phase 4: compress energy core (carbon, flex & MCR dropped).
     if (candidates[candidates.length - 1] !== coreCompressedCost) candidates.push(coreCompressedCost);
     if (candidates[candidates.length - 1] !== coreCompressedOnly) candidates.push(coreCompressedOnly);
   } else {
@@ -1551,12 +1610,92 @@ function formatCost(usd: number): string {
   return `$${usd.toFixed(2)}`;
 }
 
+export interface TeeUsageTokens {
+  prompt?: number;
+  completion?: number;
+  cachedInput?: number;
+}
+
+// Client-side estimate of the effective flex discount. The API bills flex
+// requests at a reduced rate but does not (yet) expose the discount as an
+// explicit field in the cost payload, so we derive it from the charged cost
+// vs the list price of the same token counts. Returns undefined when no
+// estimate is possible (no usage tokens or zero list price). Charged cost is
+// not purely token-derived, so treat the result as approximate.
+export function estimateFlexDiscount(
+  chargedUsd: number,
+  usage: TeeUsageTokens,
+  cost: { input: number; output: number; cacheRead: number },
+): { pct: number; listUsd: number } | undefined {
+  const prompt = usage.prompt ?? 0;
+  const completion = usage.completion ?? 0;
+  if (prompt <= 0 && completion <= 0) return undefined;
+  const cached = Math.min(usage.cachedInput ?? 0, prompt);
+  const listUsd = ((prompt - cached) * cost.input + cached * cost.cacheRead + completion * cost.output) / 1e6;
+  if (!(listUsd > 0)) return undefined;
+  const pct = Math.max(0, Math.min(99, Math.round((1 - chargedUsd / listUsd) * 100)));
+  return { pct, listUsd };
+}
+
+function formatQueueWait(seconds: number): string {
+  const s = Math.max(0, Math.round(seconds));
+  if (s < 60) return `~${s}s`;
+  return `~${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
 export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  // Per-stream flex telemetry, captured from SSE data chunks (not comments).
+  // Flex requests held in the server-side queue emit heartbeat chunks —
+  // data frames with an empty delta and no service_tier — roughly every 10s
+  // until generation starts. We never JSON.parse content chunks (the SDK
+  // already does that on the other tee branch); only cheap regexes run here,
+  // plus one parse for the final usage frame.
+  let firstHeartbeatCreated: number | undefined;
+  let sawContentChunk = false;
+
+  function captureDataChunk(trimmed: string): void {
+    if (!pendingServiceTier) {
+      const tier = /"service_tier"\s*:\s*"([^"]+)"/.exec(trimmed);
+      if (tier) pendingServiceTier = tier[1];
+    }
+    if (!sawContentChunk) {
+      const created = /"created"\s*:\s*(\d+)/.exec(trimmed);
+      if (/"delta"\s*:\s*\{\s*\}/.test(trimmed)) {
+        // Queue heartbeat: empty delta while the request is held server-side.
+        if (firstHeartbeatCreated === undefined && created) firstHeartbeatCreated = Number(created[1]);
+      } else if (/"delta"\s*:\s*\{[^}]/.test(trimmed)) {
+        // First chunk whose delta carries something: the queue is over.
+        sawContentChunk = true;
+        if (firstHeartbeatCreated !== undefined && created) {
+          pendingQueueSeconds = Math.max(0, Number(created[1]) - firstHeartbeatCreated);
+        }
+      }
+    }
+    if (/"usage"\s*:\s*\{/.test(trimmed)) {
+      try {
+        const chunk = JSON.parse(trimmed.slice(5));
+        const u = chunk?.usage;
+        if (u && typeof u === "object") {
+          pendingUsage = {
+            prompt: typeof u.prompt_tokens === "number" ? u.prompt_tokens : undefined,
+            completion: typeof u.completion_tokens === "number" ? u.completion_tokens : undefined,
+            cachedInput:
+              typeof u.prompt_tokens_details?.cached_tokens === "number"
+                ? u.prompt_tokens_details.cached_tokens
+                : 0,
+          };
+        }
+      } catch {
+        // Malformed usage chunk, ignore
+      }
+    }
+  }
 
   function processLine(line: string): void {
     const trimmed = line.trim();
@@ -1583,6 +1722,8 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
       } catch {
         // Malformed cost comment, ignore
       }
+    } else if (trimmed.startsWith("data:") && trimmed !== "data: [DONE]") {
+      captureDataChunk(trimmed);
     }
   }
 
@@ -1879,6 +2020,41 @@ export default function (pi: ExtensionAPI) {
       if (pendingEnergyRaw) entry.sse_energy_raw = pendingEnergyRaw;
       if (pendingMcrSessionRaw) entry.sse_mcr_session_raw = pendingMcrSessionRaw;
       if (pendingCostRaw) entry.sse_cost_raw = pendingCostRaw;
+      // Flex telemetry captured from SSE data chunks. The footer badge is
+      // sticky (latest-wins): a flex turn sets it, a standard-tier turn
+      // clears it.
+      if (pendingServiceTier) {
+        entry.service_tier = pendingServiceTier;
+        if (typeof pendingQueueSeconds === "number") entry.queue_seconds = pendingQueueSeconds;
+        if (pendingUsage && ((pendingUsage.prompt ?? 0) > 0 || (pendingUsage.completion ?? 0) > 0)) {
+          entry.usage_tokens = {
+            prompt: pendingUsage.prompt ?? 0,
+            completion: pendingUsage.completion ?? 0,
+            cached_input: pendingUsage.cachedInput ?? 0,
+          };
+        }
+        if (pendingServiceTier === "flex") {
+          let modelCost: { input: number; output: number; cacheRead: number } | undefined;
+          try {
+            // ctx.model is a getter that can throw on stale contexts.
+            modelCost = (ctx.model as any)?.cost;
+          } catch {
+            modelCost = undefined;
+          }
+          const est = modelCost && pendingUsage
+            ? estimateFlexDiscount(pendingCostUsd, pendingUsage, modelCost)
+            : undefined;
+          if (est) {
+            entry.flex_discount_pct_est = est.pct;
+            entry.list_cost_usd_est = est.listUsd;
+            sessionFlexDiscountPct = est.pct;
+          }
+          sessionFlexQueueSeconds = pendingQueueSeconds;
+        } else {
+          sessionFlexDiscountPct = undefined;
+          sessionFlexQueueSeconds = undefined;
+        }
+      }
       pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;
@@ -1897,6 +2073,8 @@ export default function (pi: ExtensionAPI) {
         costUsd: pendingCostUsd,
         energyJoules: pendingEnergyJoules,
         turnIndex,
+        serviceTier: entry.service_tier,
+        flexDiscountPctEst: entry.flex_discount_pct_est,
       });
 
       pendingEnergyJoules = 0;
@@ -1905,6 +2083,12 @@ export default function (pi: ExtensionAPI) {
       pendingMcrSessionRaw = null;
       pendingCostRaw = null;
     }
+    // Data-chunk telemetry is cleared unconditionally: a flex request aborted
+    // mid-queue leaves tier/queue set without any energy/cost, and must not
+    // leak into the next request's entry.
+    pendingServiceTier = null;
+    pendingUsage = null;
+    pendingQueueSeconds = undefined;
     // If the session_start quota fetch hasn't landed yet (race), fetch now
     // so the very first turn always shows plan/allowance data.
     if (config.quota !== "off" && !cachedQuota && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
