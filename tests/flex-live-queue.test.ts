@@ -3,6 +3,7 @@ import {
   liveFlexElapsedSeconds,
   flexLiveTiers,
   liveFlexQueueState,
+  formatLiveWait,
   streamNeuralwatt,
   resetSessionState,
 } from "../index";
@@ -24,15 +25,15 @@ describe("liveFlexElapsedSeconds", () => {
 
 describe("flexLiveTiers", () => {
   it("keeps the previous turn's discount in the full tier", () => {
-    expect(flexLiveTiers(125, 83)).toEqual([
-      "flex −83% · queued ~2m05s",
-      "flex queued ~2m05s",
+    expect(flexLiveTiers(125, 35)).toEqual([
+      "flex −35% · queued 02:05",
+      "flex queued 02:05",
       "",
     ]);
   });
 
   it("collapses to wait-only tiers without a previous discount", () => {
-    expect(flexLiveTiers(12)).toEqual(["flex queued ~12s", ""]);
+    expect(flexLiveTiers(12)).toEqual(["flex queued 00:12", ""]);
   });
 
   it("is strictly shorter at each disclosure level", () => {
@@ -40,6 +41,24 @@ describe("flexLiveTiers", () => {
     for (let i = 1; i < tiers.length; i++) {
       expect(tiers[i].length).toBeLessThan(tiers[i - 1].length);
     }
+  });
+});
+
+describe("formatLiveWait", () => {
+  it("renders a constant-width m:ss clock", () => {
+    expect(formatLiveWait(2)).toBe("00:02");
+    expect(formatLiveWait(65)).toBe("01:05");
+    expect(formatLiveWait(605)).toBe("10:05");
+    // Every in-range rendering is exactly 5 chars: the ticking badge never
+    // grows, so the right side of the footer never reflows.
+    for (const s of [0, 2, 59, 60, 61, 599, 5999]) {
+      expect(formatLiveWait(s)).toHaveLength(5);
+    }
+  });
+
+  it("saturates past 100 minutes instead of growing", () => {
+    expect(formatLiveWait(6000)).toBe("99:59+");
+    expect(formatLiveWait(36000)).toBe("99:59+");
   });
 });
 

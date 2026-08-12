@@ -3,7 +3,9 @@ import {
   readEnergyFromTee,
   resetSessionState,
   getPendingState,
-  estimateFlexDiscount,
+  FLEX_DISCOUNT_PCT,
+  FLEX_PRICING_MULTIPLIER,
+  flexConsumedCostUsdEst,
 } from "../index";
 
 function str(s: string): Uint8Array {
@@ -116,41 +118,19 @@ describe("flex telemetry capture from SSE data chunks", () => {
   });
 });
 
-describe("estimateFlexDiscount", () => {
-  const deepseekCost = { input: 0.14, output: 0.28, cacheRead: 0.028 };
-  const glmCost = { input: 1.45, output: 4.5, cacheRead: 0.145 };
-
-  it("deepseek pair: charged 1.6e-5 for 14/146 tokens → ~63% off list", async () => {
-    const est = estimateFlexDiscount(1.6e-5, { prompt: 14, completion: 146 }, deepseekCost);
-    expect(est).toBeDefined();
-    // List price: (14×0.14 + 146×0.28) / 1e6 = 4.284e-5.
-    expect(est!.listUsd).toBeCloseTo(4.284e-5, 10);
-    expect(est!.pct).toBe(63);
+describe("fixed flex discount (per flex-tier docs)", () => {
+  // The docs state a fixed 35% off standard (0.65 multiplier). Charged cost
+  // is energy-derived, so token list-price math must not be used to derive
+  // — or sanity-check — the discount (that was the old estimateFlexDiscount
+  // bug: it produced 2–98% swings that scaled with queue time).
+  it("is 35% off with a 0.65 pricing multiplier", () => {
+    expect(FLEX_PRICING_MULTIPLIER).toBe(0.65);
+    expect(FLEX_DISCOUNT_PCT).toBe(35);
   });
 
-  it("glm pair: charged 3.9e-5 for 17/64 tokens → ~88% off list", async () => {
-    const est = estimateFlexDiscount(3.9e-5, { prompt: 17, completion: 64 }, glmCost);
-    // List price: (17×1.45 + 64×4.5) / 1e6 = 3.1265e-4.
-    expect(est!.listUsd).toBeCloseTo(3.1265e-4, 10);
-    expect(est!.pct).toBe(88);
-  });
-
-  it("cached input tokens are billed at the cacheRead rate", async () => {
-    const est = estimateFlexDiscount(3e-6, { prompt: 100, cachedInput: 60, completion: 0 }, deepseekCost);
-    // List price: (40×0.14 + 60×0.028) / 1e6 = 7.28e-6.
-    expect(est!.listUsd).toBeCloseTo(7.28e-6, 11);
-    expect(est!.pct).toBe(59);
-  });
-
-  it("returns undefined without usage tokens or with zero list price", async () => {
-    expect(estimateFlexDiscount(1e-5, {}, deepseekCost)).toBeUndefined();
-    expect(
-      estimateFlexDiscount(1e-5, { prompt: 10, completion: 10 }, { input: 0, output: 0, cacheRead: 0 }),
-    ).toBeUndefined();
-  });
-
-  it("clamps to 0 when charged at or above list price", async () => {
-    const est = estimateFlexDiscount(1e-4, { prompt: 14, completion: 146 }, deepseekCost);
-    expect(est!.pct).toBe(0);
+  it("derives the consumed (standard-price) cost by dividing by the multiplier", () => {
+    expect(flexConsumedCostUsdEst(6.5e-6)).toBeCloseTo(1e-5, 12);
+    expect(flexConsumedCostUsdEst(0)).toBeUndefined();
+    expect(flexConsumedCostUsdEst(-1)).toBeUndefined();
   });
 });

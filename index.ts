@@ -656,7 +656,11 @@ interface EnergyEvent {
   usage_tokens?: { prompt: number; completion: number; cached_input: number };
   queue_seconds?: number;
   flex_discount_pct_est?: number;
-  list_cost_usd_est?: number;
+  // Estimated consumed (standard-price) cost: charged / 0.65 per the flex
+  // pricing multiplier. Replaces the old token list-price estimate (charged
+  // cost is energy-derived, not token-derived, so token list math was
+  // meaningless).
+  consumed_cost_usd_est?: number;
 }
 
 const ENERGY_ENTRY_TYPE = "neuralwatt-energy";
@@ -816,8 +820,10 @@ function replayEnergyEvents(ctx: any): void {
       // Flex badge is latest-wins: restore from the most recent entry that
       // recorded a service tier; a standard-tier turn clears it.
       if (entry.data.service_tier === "flex") {
-        sessionFlexDiscountPct =
-          typeof entry.data.flex_discount_pct_est === "number" ? entry.data.flex_discount_pct_est : undefined;
+        // Fixed per the flex-tier docs; legacy entries may carry a derived
+        // estimate from the era when it was (incorrectly) computed from token
+        // list prices — always use the documented constant for the badge.
+        sessionFlexDiscountPct = FLEX_DISCOUNT_PCT;
         sessionFlexQueueSeconds =
           typeof entry.data.queue_seconds === "number" ? entry.data.queue_seconds : undefined;
       } else if (typeof entry.data.service_tier === "string") {
@@ -1669,25 +1675,20 @@ export interface TeeUsageTokens {
   cachedInput?: number;
 }
 
-// Client-side estimate of the effective flex discount. The API bills flex
-// requests at a reduced rate but does not (yet) expose the discount as an
-// explicit field in the cost payload, so we derive it from the charged cost
-// vs the list price of the same token counts. Returns undefined when no
-// estimate is possible (no usage tokens or zero list price). Charged cost is
-// not purely token-derived, so treat the result as approximate.
-export function estimateFlexDiscount(
-  chargedUsd: number,
-  usage: TeeUsageTokens,
-  cost: { input: number; output: number; cacheRead: number },
-): { pct: number; listUsd: number } | undefined {
-  const prompt = usage.prompt ?? 0;
-  const completion = usage.completion ?? 0;
-  if (prompt <= 0 && completion <= 0) return undefined;
-  const cached = Math.min(usage.cachedInput ?? 0, prompt);
-  const listUsd = ((prompt - cached) * cost.input + cached * cost.cacheRead + completion * cost.output) / 1e6;
-  if (!(listUsd > 0)) return undefined;
-  const pct = Math.max(0, Math.min(99, Math.round((1 - chargedUsd / listUsd) * 100)));
-  return { pct, listUsd };
+// Flex pricing per the official flex-tier docs
+// (https://portal.neuralwatt.com/docs/guides/flex-tier): today a fixed 35%
+// discount off standard, applied as a 0.65 multiplier to the charged amount.
+// Charged cost is ENERGY-derived, not token-derived, so it cannot be derived
+// from — or compared against — token list prices (a previous revision did
+// exactly that and surfaced meaningless 2–98% numbers). Wait-time buckets
+// with different discounts are on the provider's roadmap; revisit this
+// constant if that ships.
+export const FLEX_PRICING_MULTIPLIER = 0.65;
+export const FLEX_DISCOUNT_PCT = Math.round((1 - FLEX_PRICING_MULTIPLIER) * 100);
+
+// Estimated consumed (standard-price equivalent) cost of a flex request.
+export function flexConsumedCostUsdEst(chargedUsd: number): number | undefined {
+  return chargedUsd > 0 ? chargedUsd / FLEX_PRICING_MULTIPLIER : undefined;
 }
 
 function formatQueueWait(seconds: number): string {
@@ -1705,9 +1706,20 @@ export function liveFlexElapsedSeconds(startedAt: number, now: number): number |
   return s >= LIVE_FLEX_MIN_SECONDS ? s : undefined;
 }
 
+// Fixed-width m:ss clock for the live flex ticker. Constant width matters:
+// the ticker re-renders the footer every second, and a growing wait string
+// would push the right side of the widget against its compression budget,
+// making it visibly reflow on every digit rollover.
+export function formatLiveWait(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const m = Math.floor(s / 60);
+  if (m > 99) return "99:59+";
+  return `${String(m).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
+}
+
 // Progressive-disclosure tiers for the live (in-flight) flex badge.
 export function flexLiveTiers(elapsedSeconds: number, previousDiscountPct?: number): string[] {
-  const wait = formatQueueWait(elapsedSeconds);
+  const wait = formatLiveWait(elapsedSeconds);
   const waitTag = `flex queued ${wait}`;
   const full = previousDiscountPct !== undefined
     ? `flex −${previousDiscountPct}% · queued ${wait}`
@@ -2214,21 +2226,14 @@ export default function (pi: ExtensionAPI) {
           };
         }
         if (pendingServiceTier === "flex") {
-          let modelCost: { input: number; output: number; cacheRead: number } | undefined;
-          try {
-            // ctx.model is a getter that can throw on stale contexts.
-            modelCost = (ctx.model as any)?.cost;
-          } catch {
-            modelCost = undefined;
-          }
-          const est = modelCost && pendingUsage
-            ? estimateFlexDiscount(pendingCostUsd, pendingUsage, modelCost)
-            : undefined;
-          if (est) {
-            entry.flex_discount_pct_est = est.pct;
-            entry.list_cost_usd_est = est.listUsd;
-            sessionFlexDiscountPct = est.pct;
-          }
+          // Fixed per the flex-tier docs (0.65 multiplier → 35% off). The
+          // charged amount is energy-derived; do not compare it to token list
+          // prices. Consumed (standard-equivalent) cost is recoverable by
+          // dividing by the multiplier.
+          entry.flex_discount_pct_est = FLEX_DISCOUNT_PCT;
+          const consumed = flexConsumedCostUsdEst(pendingCostUsd);
+          if (consumed !== undefined) entry.consumed_cost_usd_est = consumed;
+          sessionFlexDiscountPct = FLEX_DISCOUNT_PCT;
           sessionFlexQueueSeconds = pendingQueueSeconds;
         } else {
           sessionFlexDiscountPct = undefined;

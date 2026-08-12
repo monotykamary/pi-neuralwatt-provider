@@ -103,8 +103,8 @@ Each `turn_end` writes a `neuralwatt-energy` custom entry to the session JSONL:
     "service_tier": "flex",
     "usage_tokens": { "prompt": 17, "completion": 64, "cached_input": 0 },
     "queue_seconds": 350,
-    "flex_discount_pct_est": 98,
-    "list_cost_usd_est": 2.27e-04
+    "flex_discount_pct_est": 35,
+    "consumed_cost_usd_est": 4.3e-05
   }
 }
 ```
@@ -145,29 +145,33 @@ The tee reader additionally scans SSE `data:` lines (cheap regexes only; content
 | `service_tier` | `"service_tier"` on any content/usage chunk |
 | `usage_tokens` | the final chunk's `usage` object (the one chunk we do parse), including `prompt_tokens_details.cached_tokens` |
 | `queue_seconds` | `created` of the first content-bearing chunk − `created` of the first heartbeat chunk (undefined when never queued) |
-| `flex_discount_pct_est` | `round((1 − charged / list) × 100)` where list is the same token counts at the model's list rates (cached input billed at `cacheRead`); clamped to 0–99 |
-| `list_cost_usd_est` | the list-price estimate used above |
+| `flex_discount_pct_est` | fixed **35** — Neuralwatt pricing is **energy-based**; per the flex-tier docs the discount is a constant 0.65 multiplier on the charged amount ("today"; wait-time buckets with different discounts are on the roadmap) |
+| `consumed_cost_usd_est` | `charged / 0.65` — the standard-price equivalent for this request |
 
-The footer energy line gains a sticky badge for the latest flex request: `flex −82% · queued ~6m05s` (progressively dropped to `flex −82%`, then hidden, before carbon compresses). A standard-tier turn clears the badge. Replay restores it latest-wins from `service_tier`/`flex_discount_pct_est`/`queue_seconds` on each entry.
+**Do not compare charged cost against token list prices.** `request_cost_usd` is derived from the energy pool the request ran in, not from token counts — the ratio vs token list prices swings wildly (observed 2%–98%) and is meaningless. An earlier revision divided the two and presented the result as a queue-scaled discount; it was wrong in both value and direction (a "−83%" badge was not "actually −17%" — under energy-based pricing it was never a discount measure at all; the true discount is −35% per the docs).
+
+The footer energy line gains a sticky badge for the latest flex request: `flex −35% · queued ~6m05s` (progressively dropped to `flex −35%`, then hidden, before carbon compresses). A standard-tier turn clears the badge. Replay restores it latest-wins from `service_tier`/`flex_discount_pct_est`/`queue_seconds` on each entry (discount restored to the documented constant regardless of legacy derived values).
 
 The `neuralwatt:turn-energy` event payload gains `serviceTier` and `flexDiscountPctEst`.
 
 ### Requested upstream fields (supersede the estimate when shipped)
 
-Asked of upstream: explicit `list_cost_usd`, `discount_usd` / `flex_discount_pct`, and `queue_seconds` on the `: cost` comment (and the non-stream cost object); once present they flow into `sse_cost_raw` verbatim with no client change, and the estimate should be replaced by the real value.
+Asked of upstream: explicit `consumed_cost_usd`, `discount_usd` / `flex_discount_pct`, and `queue_seconds` on the `: cost` comment (and the non-stream cost object); once present they flow into `sse_cost_raw` verbatim with no client change, and the estimate should be replaced by the real value.
 
 
 ### Live footer queue indicator
 
 While a `-flex` model's stream is in flight, the energy widget's flex badge
-switches to a live wait ticker (`flex queued ~12s`; when a previous flex turn
-exists in the session the full tier keeps its discount:
-`flex −83% · queued ~2m05s`). It refreshes once a second after a 2s grace
-window (requests that start generating immediately never flicker a badge),
-appears even before the session's first completed turn, and clears when the
-stream settles. Detection keys off the model id suffix client-side — SSE
-heartbeats carry no `service_tier`, so a queued flex request would otherwise
-be invisible until generation starts.
+switches to a live wait ticker rendered as a fixed-width m:ss clock
+(`flex queued 00:12`; when a previous flex turn exists in the session the
+full tier keeps its discount: `flex −35% · queued 02:05`, saturating at
+`99:59+`). It refreshes once a second after a 2s grace window (requests that
+start generating immediately never flicker a badge), appears even before the
+session's first completed turn, and clears when the stream settles. The clock
+must stay constant-width: a growing wait string would nudge the right side of
+the widget against its compression budget on every rollover. Detection keys
+off the model id suffix client-side — SSE heartbeats carry no `service_tier`,
+so a queued flex request would otherwise be invisible until generation starts.
 
 ## Billed Cost Flows Into pi's Own Cost Surfaces
 
