@@ -157,6 +157,18 @@ The `neuralwatt:turn-energy` event payload gains `serviceTier` and `flexDiscount
 Asked of upstream: explicit `list_cost_usd`, `discount_usd` / `flex_discount_pct`, and `queue_seconds` on the `: cost` comment (and the non-stream cost object); once present they flow into `sse_cost_raw` verbatim with no client change, and the estimate should be replaced by the real value.
 
 
+### Live footer queue indicator
+
+While a `-flex` model's stream is in flight, the energy widget's flex badge
+switches to a live wait ticker (`flex queued ~12s`; when a previous flex turn
+exists in the session the full tier keeps its discount:
+`flex −83% · queued ~2m05s`). It refreshes once a second after a 2s grace
+window (requests that start generating immediately never flicker a badge),
+appears even before the session's first completed turn, and clears when the
+stream settles. Detection keys off the model id suffix client-side — SSE
+heartbeats carry no `service_tier`, so a queued flex request would otherwise
+be invisible until generation starts.
+
 ## Billed Cost Flows Into pi's Own Cost Surfaces
 
 The extension wraps the assistant-message event stream so the final `done`

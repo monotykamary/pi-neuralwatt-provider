@@ -692,6 +692,14 @@ let pendingQueueSeconds: number | undefined;
 let sessionFlexDiscountPct: number | undefined;
 let sessionFlexQueueSeconds: number | undefined;
 let teeReader: Promise<void> | undefined;
+// Live in-flight flex queue indicator (left side of the energy widget): set
+// when a -flex model's stream starts, cleared when it settles. Reference-
+// counted because concurrent streams are possible; the sticky latest-turn
+// badge state above is untouched by this.
+let liveFlexStreams = 0;
+let liveFlexStartedAt: number | null = null;
+let liveFlexTicker: ReturnType<typeof setInterval> | undefined;
+let lastFooterCtx: { ui: any } | null = null;
 
 function trackTeeReader(reader: Promise<void>): void {
   const settled = reader.catch(() => {});
@@ -883,7 +891,13 @@ function buildEnergyText(maxCols: number): string | undefined {
   const hasMCR = config.mcr !== "off" && sessionMcrFp !== null;
   const hasCarbon = config.carbon !== "off" && sessionCarbonGrams > 0;
 
-  if (!hasEnergy && !hasMCR) return undefined;
+  if (!hasEnergy && !hasMCR) {
+    // Nothing recorded yet — but a flex request may be waiting in the queue:
+    // show the live ticker even before the session's first completed turn.
+    if (liveFlexStartedAt === null) return undefined;
+    const elapsed = liveFlexElapsedSeconds(liveFlexStartedAt, Date.now());
+    return elapsed === undefined ? undefined : flexLiveTiers(elapsed, sessionFlexDiscountPct)[0];
+  }
 
   // Energy string levels
   const energyStr = formatEnergy(sessionEnergyJoules);
@@ -925,11 +939,18 @@ function buildEnergyText(maxCols: number): string | undefined {
     carbonTiers.push("");
   }
 
-  // Flex badge tiers: effective discount + queue wait of the latest flex
-  // request ("flex −82% · queued ~6m05s" → "flex −82%" → dropped). Most
-  // auxiliary segment — dropped after MCR but before carbon.
+  // Flex badge tiers. While a flex stream is in flight this switches to a
+  // live wait ticker (full tier keeps the previous turn's discount). At rest:
+  // effective discount + queue wait of the latest flex request
+  // ("flex −82% · queued ~6m05s" → "flex −82%" → dropped). Most auxiliary
+  // segment — dropped after MCR but before carbon.
   const flexTiers: string[] = [];
-  if (sessionFlexDiscountPct !== undefined) {
+  const liveWait = liveFlexStartedAt !== null
+    ? liveFlexElapsedSeconds(liveFlexStartedAt, Date.now())
+    : undefined;
+  if (liveWait !== undefined) {
+    flexTiers.push(...flexLiveTiers(liveWait, sessionFlexDiscountPct));
+  } else if (sessionFlexDiscountPct !== undefined) {
     const pctTag = `flex −${sessionFlexDiscountPct}%`;
     const q = sessionFlexQueueSeconds && sessionFlexQueueSeconds > 0
       ? ` · queued ${formatQueueWait(sessionFlexQueueSeconds)}`
@@ -1466,13 +1487,44 @@ class StatusLineWidget {
   }
 }
 
+
+function refreshLiveFlexBadge(): void {
+  if (!lastFooterCtx) return;
+  try {
+    updateEnergyStatus(lastFooterCtx);
+  } catch {
+    // Stale ctx after TUI teardown — ignore
+  }
+}
+
+function markLiveFlexStream(): void {
+  if (liveFlexStreams++ > 0) return; // concurrent flex streams: keep the first start
+  liveFlexStartedAt = Date.now();
+  liveFlexTicker = setInterval(refreshLiveFlexBadge, 1000);
+  (liveFlexTicker as unknown as { unref?: () => void }).unref?.();
+  refreshLiveFlexBadge();
+}
+
+function stopLiveFlexStream(): void {
+  if (liveFlexStreams > 0) liveFlexStreams--;
+  if (liveFlexStreams > 0) return;
+  liveFlexStartedAt = null;
+  if (liveFlexTicker !== undefined) {
+    clearInterval(liveFlexTicker);
+    liveFlexTicker = undefined;
+  }
+  refreshLiveFlexBadge();
+}
+
 function updateEnergyStatus(ctx: any): void {
+  // Stash for the live flex ticker's ~1s re-renders.
+  lastFooterCtx = ctx;
   // Show the status line only after neuralwatt activity is recorded in this
   // session. This avoids showing quota/energy data in sessions that use a
   // different provider, and prevents the quota from appearing before any
   // turn has completed (quota is pre-fetched eagerly so it's ready to display
   // as soon as the first turn ends, alongside the energy data).
-  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null || sessionCarbonGrams > 0 || sessionGridId !== null;
+  const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null || sessionCarbonGrams > 0 || sessionGridId !== null || liveFlexStartedAt !== null;
 
   // When hideOnOtherProvider is enabled, suppress display if the active
   // model is from a different provider. This prevents stale energy/quota
@@ -1642,6 +1694,30 @@ function formatQueueWait(seconds: number): string {
   const s = Math.max(0, Math.round(seconds));
   if (s < 60) return `~${s}s`;
   return `~${Math.floor(s / 60)}m${String(s % 60).padStart(2, "0")}s`;
+}
+
+const LIVE_FLEX_MIN_SECONDS = 2;
+
+// Whole seconds elapsed since a flex stream started, or undefined inside the
+// grace window (requests that start generating within 2s never show a ticker).
+export function liveFlexElapsedSeconds(startedAt: number, now: number): number | undefined {
+  const s = Math.floor((now - startedAt) / 1000);
+  return s >= LIVE_FLEX_MIN_SECONDS ? s : undefined;
+}
+
+// Progressive-disclosure tiers for the live (in-flight) flex badge.
+export function flexLiveTiers(elapsedSeconds: number, previousDiscountPct?: number): string[] {
+  const wait = formatQueueWait(elapsedSeconds);
+  const waitTag = `flex queued ${wait}`;
+  const full = previousDiscountPct !== undefined
+    ? `flex −${previousDiscountPct}% · queued ${wait}`
+    : waitTag;
+  return full === waitTag ? [waitTag, ""] : [full, waitTag, ""];
+}
+
+// Debug/test accessor: live flex queue indicator state.
+export function liveFlexQueueState(): { streams: number; startedAt: number | null } {
+  return { streams: liveFlexStreams, startedAt: liveFlexStartedAt };
 }
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
@@ -1822,6 +1898,7 @@ export function applyBilledCostToUsage(usage: any, billedUsd: number): void {
 export function wrapStreamWithBilledCost(
   inner: AssistantMessageEventStream,
   getBilledUsd: () => Promise<number | undefined>,
+  onSettled?: () => void,
 ): AssistantMessageEventStream {
   const out = createAssistantMessageEventStream();
   (async () => {
@@ -1836,11 +1913,11 @@ export function wrapStreamWithBilledCost(
         }
         out.push(event as any);
       }
-      out.end();
     } catch {
       // Inner stream failure mid-iteration: end downstream with whatever it saw
-      out.end();
     }
+    out.end();
+    onSettled?.();
   })();
   return out as AssistantMessageEventStream;
 }
@@ -1944,10 +2021,12 @@ export function streamNeuralwatt(
   // Rewrite the committed message's usage.cost to the metered billed cost
   // (flex-discounted when queued) before pi stores it — footers, session
   // totals, and /stats then reflect what's actually billed, in real time.
+  const isFlexModel = neuralwattModel.id.endsWith("-flex");
+  if (isFlexModel) markLiveFlexStream();
   return wrapStreamWithBilledCost(inner, async () => {
     try { await requestTee; } catch { /* tee already swallows its own errors */ }
     return requestBilledUsd;
-  });
+  }, isFlexModel ? stopLiveFlexStream : undefined);
 }
 
 // ─── Extension Entry Point ────────────────────────────────────────────────────
