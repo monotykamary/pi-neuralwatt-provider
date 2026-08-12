@@ -6,6 +6,8 @@ import {
   FLEX_DISCOUNT_PCT,
   FLEX_PRICING_MULTIPLIER,
   flexConsumedCostUsdEst,
+  deriveFlexMultiplier,
+  effectiveFlexDiscountPct,
 } from "../index";
 
 function str(s: string): Uint8Array {
@@ -128,9 +130,59 @@ describe("fixed flex discount (per flex-tier docs)", () => {
     expect(FLEX_DISCOUNT_PCT).toBe(35);
   });
 
+  it("falls back to the documented value before any measurement lands", () => {
+    expect(effectiveFlexDiscountPct()).toBe(35);
+  });
+
   it("derives the consumed (standard-price) cost by dividing by the multiplier", () => {
     expect(flexConsumedCostUsdEst(6.5e-6)).toBeCloseTo(1e-5, 12);
     expect(flexConsumedCostUsdEst(0)).toBeUndefined();
     expect(flexConsumedCostUsdEst(-1)).toBeUndefined();
+  });
+});
+
+describe("deriveFlexMultiplier (aggregate account measurement)", () => {
+  // charged_kwh = std_consumed + M × flex_consumed  ⇒  M = (charged − (consumed − flex)) / flex
+  const summary = (consumed: number, charged: number) => ({
+    accounting_method: "energy",
+    totals: { energy_kwh_consumed: consumed, energy_kwh_charged: charged },
+  });
+  const byModel = (flexKwh: number) => ({
+    products: [
+      { requested_model: "glm-5.2-flex", energy_kwh: flexKwh },
+      { requested_model: "glm-5.2", energy_kwh: 8 },
+    ],
+  });
+
+  it("derives the multiplier from aggregate usage (0.65 nominal)", () => {
+    // consumed 10 kWh, flex 2 kWh, charged 9.3 ⇒ std 8 + M× 2 = 9.3 ⇒ M = 0.65
+    const m = deriveFlexMultiplier(summary(10, 9.3), byModel(2));
+    expect(m).toBeCloseTo(0.65, 6);
+  });
+
+  it("reflects an upstream change automatically once measured", () => {
+    // Same volume, charged 9.0 ⇒ M = 0.5 (a future 50% bucket mix reads truthfully)
+    const m = deriveFlexMultiplier(summary(10, 9.0), byModel(2));
+    expect(m).toBeCloseTo(0.5, 6);
+  });
+
+  it("returns undefined below the volume gate or with unusable fields", () => {
+    expect(deriveFlexMultiplier(summary(10, 9.3), byModel(0.001))).toBeUndefined();
+    expect(deriveFlexMultiplier({ accounting_method: "token", totals: { energy_kwh_consumed: 10, energy_kwh_charged: 9.3 } }, byModel(2))).toBeUndefined();
+    expect(deriveFlexMultiplier({}, byModel(2))).toBeUndefined();
+  });
+
+  it("rejects impossible results (above standard price or degenerate)", () => {
+    // charged 10.5 > consumed would imply M = 1.25
+    expect(deriveFlexMultiplier(summary(10, 10.5), byModel(2))).toBeUndefined();
+    // flex kWh claims to exceed total consumption — broken grouping, don't trust
+    expect(deriveFlexMultiplier(summary(10, 9.3), byModel(11))).toBeUndefined();
+  });
+
+  it("falls back to models[] rows when products[] is absent", () => {
+    const m = deriveFlexMultiplier(summary(10, 9.3), {
+      models: [{ model: "deepseek-v4-flash-flex", energy_kwh: 2 }],
+    });
+    expect(m).toBeCloseTo(0.65, 6);
   });
 });

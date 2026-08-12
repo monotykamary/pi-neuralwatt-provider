@@ -150,6 +150,32 @@ The tee reader additionally scans SSE `data:` lines (cheap regexes only; content
 
 **Do not compare charged cost against token list prices.** `request_cost_usd` is derived from the energy pool the request ran in, not from token counts — the ratio vs token list prices swings wildly (observed 2%–98%) and is meaningless. An earlier revision divided the two and presented the result as a queue-scaled discount; it was wrong in both value and direction (a "−83%" badge was not "actually −17%" — under energy-based pricing it was never a discount measure at all; the true discount is −35% per the docs).
 
+### Measuring the multiplier from account usage
+
+The discount constant is auto-verified at runtime so upstream changes (wait-
+time buckets, a new multiplier) are reflected without a release. Wherever the
+quota is refreshed, the extension also fetches `GET /v1/usage/summary` and
+`GET /v1/usage/by-model` (trailing 7 days) and derives the effective
+multiplier from the documented billing identity:
+
+```
+charged_kwh = standard_consumed_kwh + M × flex_consumed_kwh
+          M = 1 − (consumed − charged) / Σ products[*-flex].energy_kwh
+```
+
+The measurement is used only when: `accounting_method` is "energy"; the flex
+volume is ≥ 0.02 kWh (below that, millikWh truncation swamps the ratio); flex
+kWh < total consumed; and the result lands in (0.05, 1.0]. Otherwise it falls
+back to the documented 0.65. Windows are kept post-2026-07-24 because older
+flex traffic groups under served-model rows. Verified on a real account
+(2026-08): consumed 48.735 kWh vs charged 48.672 kWh with 0.167 kWh of flex
+volume ⇒ M ≈ 0.62 — consistent with the documented 0.65 within cutover and
+truncation noise.
+
+The footer badge (`flex −N%`) and `flex_discount_pct_est` write the
+effective (measured-or-documented) discount; `consumed_cost_usd_est` divides
+by the same effective multiplier.
+
 The footer energy line gains a sticky badge for the latest flex request: `flex −35% · queued ~6m05s` (progressively dropped to `flex −35%`, then hidden, before carbon compresses). A standard-tier turn clears the badge. Replay restores it latest-wins from `service_tier`/`flex_discount_pct_est`/`queue_seconds` on each entry (discount restored to the documented constant regardless of legacy derived values).
 
 The `neuralwatt:turn-energy` event payload gains `serviceTier` and `flexDiscountPctEst`.

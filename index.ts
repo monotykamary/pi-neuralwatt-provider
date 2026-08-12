@@ -820,10 +820,10 @@ function replayEnergyEvents(ctx: any): void {
       // Flex badge is latest-wins: restore from the most recent entry that
       // recorded a service tier; a standard-tier turn clears it.
       if (entry.data.service_tier === "flex") {
-        // Fixed per the flex-tier docs; legacy entries may carry a derived
-        // estimate from the era when it was (incorrectly) computed from token
-        // list prices — always use the documented constant for the badge.
-        sessionFlexDiscountPct = FLEX_DISCOUNT_PCT;
+        // Effective (measured-or-documented) flex discount; legacy entries
+        // may carry a derived estimate from the era when it was (incorrectly)
+        // computed from token list prices — never restore those.
+        sessionFlexDiscountPct = effectiveFlexDiscountPct();
         sessionFlexQueueSeconds =
           typeof entry.data.queue_seconds === "number" ? entry.data.queue_seconds : undefined;
       } else if (typeof entry.data.service_tier === "string") {
@@ -902,7 +902,9 @@ function buildEnergyText(maxCols: number): string | undefined {
     // show the live ticker even before the session's first completed turn.
     if (liveFlexStartedAt === null) return undefined;
     const elapsed = liveFlexElapsedSeconds(liveFlexStartedAt, Date.now());
-    return elapsed === undefined ? undefined : flexLiveTiers(elapsed, sessionFlexDiscountPct)[0];
+    return elapsed === undefined
+      ? undefined
+      : flexLiveTiers(elapsed, sessionFlexDiscountPct !== undefined ? effectiveFlexDiscountPct() : undefined)[0];
   }
 
   // Energy string levels
@@ -955,9 +957,9 @@ function buildEnergyText(maxCols: number): string | undefined {
     ? liveFlexElapsedSeconds(liveFlexStartedAt, Date.now())
     : undefined;
   if (liveWait !== undefined) {
-    flexTiers.push(...flexLiveTiers(liveWait, sessionFlexDiscountPct));
+    flexTiers.push(...flexLiveTiers(liveWait, sessionFlexDiscountPct !== undefined ? effectiveFlexDiscountPct() : undefined));
   } else if (sessionFlexDiscountPct !== undefined) {
-    const pctTag = `flex −${sessionFlexDiscountPct}%`;
+    const pctTag = `flex −${effectiveFlexDiscountPct()}%`;
     const q = sessionFlexQueueSeconds && sessionFlexQueueSeconds > 0
       ? ` · queued ${formatQueueWait(sessionFlexQueueSeconds)}`
       : "";
@@ -1158,6 +1160,7 @@ interface QuotaResponse {
 }
 
 let cachedQuota: QuotaResponse | null = null;
+let measuredFlexMultiplier: number | undefined;
 
 async function fetchQuota(apiKey: string, signal?: AbortSignal): Promise<QuotaResponse | null> {
   try {
@@ -1170,6 +1173,19 @@ async function fetchQuota(apiKey: string, signal?: AbortSignal): Promise<QuotaRe
   } catch {
     return null;
   }
+}
+
+// Refresh the measured flex multiplier in the background (fire-and-forget;
+// never blocks the turn flow). Call sites mirror the quota refresh points.
+function refreshFlexPricingMeasurement(apiKey: string, signal?: AbortSignal): void {
+  void fetchFlexPricingMultiplier(apiKey, signal)
+    .then((m) => {
+      if (m !== undefined) {
+        measuredFlexMultiplier = m;
+        refreshLiveFlexBadge(); // badge may now show the measured discount
+      }
+    })
+    .catch(() => { /* best-effort */ });
 }
 
 // Progressive-disclosure quota text. Returns the highest-fidelity string
@@ -1676,19 +1692,100 @@ export interface TeeUsageTokens {
 }
 
 // Flex pricing per the official flex-tier docs
-// (https://portal.neuralwatt.com/docs/guides/flex-tier): today a fixed 35%
-// discount off standard, applied as a 0.65 multiplier to the charged amount.
-// Charged cost is ENERGY-derived, not token-derived, so it cannot be derived
-// from — or compared against — token list prices (a previous revision did
-// exactly that and surfaced meaningless 2–98% numbers). Wait-time buckets
-// with different discounts are on the provider's roadmap; revisit this
-// constant if that ships.
+// (https://portal.neuralwatt.com/docs/guides/flex-tier): charged = consumed ×
+// pricing multiplier; today flex is a fixed 35% off standard (0.65). Charged
+// cost is ENERGY-derived, not token-derived, so it cannot be derived from —
+// or compared against — token list prices (a previous revision did exactly
+// that and surfaced meaningless 2–98% numbers). Wait-time buckets with
+// different discounts are on the provider's roadmap; when that ships the
+// measured derivation below starts reporting the real mix automatically while
+// this constant remains the no/low-data fallback.
 export const FLEX_PRICING_MULTIPLIER = 0.65;
 export const FLEX_DISCOUNT_PCT = Math.round((1 - FLEX_PRICING_MULTIPLIER) * 100);
 
 // Estimated consumed (standard-price equivalent) cost of a flex request.
+// Uses the measured multiplier when account usage provides enough flex kWh
+// to derive it, else the documented constant.
 export function flexConsumedCostUsdEst(chargedUsd: number): number | undefined {
-  return chargedUsd > 0 ? chargedUsd / FLEX_PRICING_MULTIPLIER : undefined;
+  return chargedUsd > 0 ? chargedUsd / effectiveFlexMultiplier() : undefined;
+}
+
+function effectiveFlexMultiplier(): number {
+  return measuredFlexMultiplier ?? FLEX_PRICING_MULTIPLIER;
+}
+
+// Discount badge: measured account multiplier when available, else documented.
+export function effectiveFlexDiscountPct(): number {
+  const m = effectiveFlexMultiplier();
+  return Math.max(0, Math.min(99, Math.round((1 - m) * 100)));
+}
+
+// Minimum aggregate flex consumption (kWh) before trusting the derived
+// multiplier — below this, millikWh truncation and measurement noise swamp
+// the ratio.
+const FLEX_MEASURE_MIN_KWH = 0.02;
+const USAGE_WINDOW_DAYS = 7;
+
+interface UsageSummaryResponse {
+  accounting_method?: string;
+  totals?: { energy_kwh_consumed?: number; energy_kwh_charged?: number };
+}
+interface UsageByModelResponse {
+  products?: Array<{ requested_model?: string; energy_kwh?: number }>;
+  models?: Array<{ model?: string; energy_kwh?: number }>;
+}
+
+// Derive the account's effective flex pricing multiplier from the usage API:
+//   charged_kwh = std_consumed + M × flex_consumed   ⇒   M = 1 − Δ / flexKwh
+// where Δ = consumed − charged and flexKwh is the sum of products[] kWh for
+// requested *-flex models over the window (some requests made under flex
+// names can appear under served-model rows before the 2026-07-24 requested-
+// name cutover — recent windows only). Gated on energy accounting, enough
+// flex volume, and a sane result; otherwise undefined (→ documented constant).
+export function deriveFlexMultiplier(
+  summary: UsageSummaryResponse,
+  byModel: UsageByModelResponse,
+): number | undefined {
+  if (summary.accounting_method && summary.accounting_method !== "energy") return undefined;
+  const consumed = summary.totals?.energy_kwh_consumed;
+  const charged = summary.totals?.energy_kwh_charged;
+  if (typeof consumed !== "number" || typeof charged !== "number") return undefined;
+  if (!(consumed > 0) || !(charged > 0)) return undefined;
+  let flexKwh = 0;
+  const rows = (byModel.products ?? byModel.models ?? []) as Array<{ requested_model?: string; model?: string; energy_kwh?: number }>;
+  for (const row of rows) {
+    const name = row.requested_model ?? row.model ?? "";
+    if (name.endsWith("-flex") && typeof row.energy_kwh === "number") flexKwh += row.energy_kwh;
+  }
+  if (flexKwh < FLEX_MEASURE_MIN_KWH) return undefined;
+  if (flexKwh >= consumed) return undefined; // flex can't exceed total consumption
+  const m = (charged - (consumed - flexKwh)) / flexKwh;
+  // Sanity: a real flex tier lives between "free" and "standard price".
+  if (!(m > 0.05 && m <= 1.0)) return undefined;
+  return m;
+}
+
+export async function fetchFlexPricingMultiplier(apiKey: string, signal?: AbortSignal): Promise<number | undefined> {
+  try {
+    const end = new Date();
+    const start = new Date(end.getTime() - USAGE_WINDOW_DAYS * 86400_000);
+    const qs = `start_date=${start.toISOString().slice(0, 10)}&end_date=${end.toISOString().slice(0, 10)}`;
+    const mk = () => (signal
+      ? AbortSignal.any([AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS), signal])
+      : AbortSignal.timeout(LIVE_FETCH_TIMEOUT_MS));
+    const headers = { Authorization: `Bearer ${apiKey}` };
+    const [summaryRes, byModelRes] = await Promise.all([
+      fetch(`${resolveBaseUrl()}/usage/summary?${qs}`, { headers, signal: mk() }),
+      fetch(`${resolveBaseUrl()}/usage/by-model?${qs}`, { headers, signal: mk() }),
+    ]);
+    if (!summaryRes.ok || !byModelRes.ok) return undefined;
+    return deriveFlexMultiplier(
+      (await summaryRes.json()) as UsageSummaryResponse,
+      (await byModelRes.json()) as UsageByModelResponse,
+    );
+  } catch {
+    return undefined;
+  }
 }
 
 function formatQueueWait(seconds: number): string {
@@ -2137,6 +2234,7 @@ export default function (pi: ExtensionAPI) {
             updateEnergyStatus(ctx);
           }
         });
+        refreshFlexPricingMeasurement(cachedApiKey || "", signal);
       }
       revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
         if (freshBase && !signal.aborted) {
@@ -2155,6 +2253,7 @@ export default function (pi: ExtensionAPI) {
         cachedQuota = quota;
         updateEnergyStatus(ctx);
       }
+      refreshFlexPricingMeasurement(cachedApiKey || "");
     }
   });
 
@@ -2230,10 +2329,10 @@ export default function (pi: ExtensionAPI) {
           // charged amount is energy-derived; do not compare it to token list
           // prices. Consumed (standard-equivalent) cost is recoverable by
           // dividing by the multiplier.
-          entry.flex_discount_pct_est = FLEX_DISCOUNT_PCT;
+          entry.flex_discount_pct_est = effectiveFlexDiscountPct();
           const consumed = flexConsumedCostUsdEst(pendingCostUsd);
           if (consumed !== undefined) entry.consumed_cost_usd_est = consumed;
-          sessionFlexDiscountPct = FLEX_DISCOUNT_PCT;
+          sessionFlexDiscountPct = effectiveFlexDiscountPct();
           sessionFlexQueueSeconds = pendingQueueSeconds;
         } else {
           sessionFlexDiscountPct = undefined;
@@ -2281,6 +2380,7 @@ export default function (pi: ExtensionAPI) {
       if (quota) {
         cachedQuota = quota;
       }
+      refreshFlexPricingMeasurement(cachedApiKey || "");
     }
     updateEnergyStatus(ctx);
   });
