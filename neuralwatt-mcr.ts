@@ -27,6 +27,12 @@ import chadFactory from "./chad-mcr-upstream";
 //      the data for its own display; Chad reads from after_provider_response
 //      headers and message_end body (separate path).
 //
+//   5. Deferred mcr_lookup registration: the proxy holds Chad's mcr_lookup
+//      placeholder stub at load and only registers it once a -long (MCR)
+//      model becomes active, so the tool stays invisible to pi and to
+//      tool-discovery layers (pi-fabric prompt matching, /tools) for every
+//      other provider and model. Registration is sticky for the session.
+//
 // chad-mcr-upstream.ts is fetched from Chad's repo and committed. Update it
 // with: npm run sync-mcr. Chad's file is byte-identical to upstream.
 
@@ -41,6 +47,14 @@ const CONVERSATION_ID_HEADER = "X-NW-Conversation-ID";
 
 function isMCRModel(modelId: string): boolean {
   return modelId.includes("neuralwatt/") || modelId.endsWith("-long") || modelId.endsWith("-mcr");
+}
+
+// Gating predicate for deferred mcr_lookup registration. Deliberately
+// narrower than isMCRModel: that one matches every neuralwatt/* id for the
+// context-drop/bridge hooks, but the recall stub stays hidden until an
+// actual MCR (-long) alias is active.
+function isLongModel(modelId: string): boolean {
+  return modelId.endsWith("-long");
 }
 
 export default function (pi: ExtensionAPI) {
@@ -87,6 +101,41 @@ export default function (pi: ExtensionAPI) {
     }
   }) as ExtensionAPI["registerProvider"];
 
+  // Hold Chad's mcr_lookup stub until a -long model is active. Chad registers
+  // it unconditionally at load, which leaks a Neuralwatt-only placeholder into
+  // the global tool list for every provider and model — tool-discovery layers
+  // on top of pi (e.g. pi-fabric prompt matching) then see it as an
+  // always-enabled tool. The stub only has meaning on MCR (-long) aliases,
+  // the only models where the gateway advertises and forwards server-side
+  // recall calls (inference_frontend#4039). Late registration is supported:
+  // pi refreshes tools registered from event handlers immediately in the
+  // same session.
+  //
+  // Registration is sticky for the rest of the session: pi exposes no
+  // unregister API, and a conversation that used a -long model can still
+  // receive forwarded recall calls for its compaction lineage after the user
+  // switches to a non-long model.
+  let pendingMcrLookupTool: Parameters<ExtensionAPI["registerTool"]>[0] | null =
+    null;
+  let mcrLookupRegistered = false;
+
+  function maybeRegisterMcrLookup(modelId: string | undefined | null) {
+    if (mcrLookupRegistered || !pendingMcrLookupTool) return;
+    if (!modelId || !isLongModel(modelId)) return;
+    mcrLookupRegistered = true;
+    const tool = pendingMcrLookupTool;
+    pendingMcrLookupTool = null;
+    pi.registerTool(tool);
+  }
+
+  proxy.registerTool = ((tool: Parameters<ExtensionAPI["registerTool"]>[0]) => {
+    if (tool.name === "mcr_lookup") {
+      pendingMcrLookupTool = tool;
+      return;
+    }
+    pi.registerTool(tool);
+  }) as ExtensionAPI["registerTool"];
+
   // ── Invoke Chad's factory with the proxy (skip if already loaded) ──────
   //
   // If Chad's extension was loaded directly by Pi (npm package installed
@@ -110,6 +159,14 @@ export default function (pi: ExtensionAPI) {
   // Idempotent when Chad isn't installed.
   pi.registerProvider("neuralwatt", makeProviderConfig());
 
+  // Register the held mcr_lookup stub the moment a -long model becomes
+  // active. model_select covers /model switches mid-session; session_start
+  // (below) covers the restored/startup model; before_provider_headers
+  // (below) is a backstop for any request path that skipped both.
+  pi.on("model_select", (event: any) => {
+    maybeRegisterMcrLookup(event?.model?.id);
+  });
+
   // Conversation identity belongs to an agent request, not provider auth.
   // Provider-level headers are also returned by getApiKeyAndHeaders() to raw
   // helper calls such as pi-vision-handoff; attaching the main Pi session there
@@ -117,6 +174,7 @@ export default function (pi: ExtensionAPI) {
   // request-header hook runs for main agent calls but not raw provider streams.
   pi.on("before_provider_headers", (event, ctx) => {
     if (ctx.model?.provider !== "neuralwatt") return;
+    maybeRegisterMcrLookup(ctx.model?.id);
     const conversationId = process.env[CONVERSATION_ID_ENV];
     if (conversationId) event.headers[CONVERSATION_ID_HEADER] = conversationId;
   });
@@ -188,6 +246,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_event: any, ctx: any) => {
+    maybeRegisterMcrLookup(ctx?.model?.id);
     installSetStatusIntercept(ctx.ui);
     // Chad's session_start wrote "" to nw-mcr/nw-energy before our
     // intercept was installed (Chad's handler runs first in load

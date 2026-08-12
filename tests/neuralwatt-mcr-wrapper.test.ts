@@ -497,3 +497,105 @@ describe("double-load sentinel", () => {
     expect(pi.handlers.get("turn_end")).toBeTruthy();
   });
 });
+
+describe("mcr_lookup tool gating (-long models only)", () => {
+  // Chad's upstream registers the mcr_lookup placeholder stub unconditionally
+  // at load. The wrapper holds it: the stub only has meaning on MCR (-long)
+  // aliases, where the gateway advertises/forwards server-side recall
+  // (inference_frontend#4039). For every other provider/model the tool must
+  // stay invisible — to pi's tool list and to discovery layers on top of pi
+  // (e.g. pi-fabric prompt matching, which reads registered tools).
+  const LONG_ID = "neuralwatt/glm-5.1-long";
+  const PLAIN_ID = "neuralwatt/glm-5.1";
+
+  async function emitSessionStart(pi: MockPi, ctx: any) {
+    for (const h of pi.handlers.get("session_start") ?? []) {
+      await h({}, ctx);
+    }
+  }
+
+  async function emitModelSelect(pi: MockPi, modelId: string) {
+    const event = {
+      type: "model_select",
+      model: { id: modelId, provider: "neuralwatt" },
+      source: "set",
+    };
+    for (const h of pi.handlers.get("model_select") ?? []) {
+      await h(event, makeCtx(modelId));
+    }
+  }
+
+  it("does not register mcr_lookup at extension load", () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    expect(pi.tools["mcr_lookup"]).toBeUndefined();
+  });
+
+  it("stays hidden for non-long neuralwatt models across session_start and model_select", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    await emitSessionStart(pi, makeCtx(PLAIN_ID));
+    await emitModelSelect(pi, "neuralwatt/kimi-k2.5");
+    expect(pi.tools["mcr_lookup"]).toBeUndefined();
+  });
+
+  it("registers on session_start when the active model is a -long alias", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+    await emitSessionStart(pi, makeCtx(LONG_ID));
+
+    const tool = pi.tools["mcr_lookup"];
+    expect(tool).toBeTruthy();
+    // Chad's tool definition passes through the hold untouched.
+    expect(tool.label).toBe("MCR server-side recall");
+    expect(tool.parameters.required).toEqual(["hash"]);
+  });
+
+  it("registers on model_select to a -long model mid-session", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    await emitSessionStart(pi, makeCtx(PLAIN_ID));
+    expect(pi.tools["mcr_lookup"]).toBeUndefined();
+
+    await emitModelSelect(pi, LONG_ID);
+    expect(pi.tools["mcr_lookup"]).toBeTruthy();
+  });
+
+  it("backstop: registers from the first neuralwatt -long provider request without any model events", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    await emitProviderHeaders(pi, makeCtx(LONG_ID));
+    expect(pi.tools["mcr_lookup"]).toBeTruthy();
+  });
+
+  it("headers backstop does not unlock for a non-neuralwatt provider on a -long id", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    await emitProviderHeaders(pi, makeCtx("other/deepseek-long", "other"));
+    expect(pi.tools["mcr_lookup"]).toBeUndefined();
+  });
+
+  it("unqualified -long ids also unlock (registry ids are not always provider-prefixed)", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    await emitModelSelect(pi, "glm-5.1-long");
+    expect(pi.tools["mcr_lookup"]).toBeTruthy();
+  });
+
+  it("registration is sticky after switching back to a non-long model", async () => {
+    const pi = makeMockPi();
+    extDefault(pi);
+
+    await emitModelSelect(pi, LONG_ID);
+    expect(pi.tools["mcr_lookup"]).toBeTruthy();
+
+    // pi exposes no unregister API, and a session with MCR compaction lineage
+    // can still receive forwarded recall calls — the tool must stay.
+    await emitModelSelect(pi, PLAIN_ID);
+    expect(pi.tools["mcr_lookup"]).toBeTruthy();
+  });
+});
