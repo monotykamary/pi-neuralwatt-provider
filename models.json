@@ -454,6 +454,39 @@
     }
   },
   {
+    "id": "kimi-k3-flex",
+    "name": "Kimi K3 (flex)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 3,
+      "output": 15,
+      "cacheRead": 0.3,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    }
+  },
+  {
     "id": "kimi-k3-fast",
     "name": "Kimi K3 Fast",
     "reasoning": false,
@@ -494,10 +527,20 @@
     "contextWindow": 131056,
     "maxTokens": 131056,
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
     },
     "vision": {
       "maxImagesPerRequest": 4
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": null
     }
   },
   {
@@ -517,7 +560,8 @@
     "contextWindow": 131056,
     "maxTokens": 131056,
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
     },
     "vision": {
       "maxImagesPerRequest": 4
