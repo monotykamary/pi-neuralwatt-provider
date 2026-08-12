@@ -1641,9 +1641,13 @@ function updateEnergyStatus(ctx: any): void {
     const rightIsRegionStandalone = !!rightRaw && rightRaw === regionStandaloneText;
     const compressRight = rightIsRegionStandalone ? buildRegionText : undefined;
     if (leftOnlyRaw) {
+      // Quota/region only (no energy left side yet): render the text on the
+      // right side of the widget, not left — otherwise it visually "collapses"
+      // to the left before the first flex/energy turn of a session.
+      const onlyRegion = !showQuotaWidget && !!regionStandaloneText;
       ctx.ui.setWidget(
         "neuralwatt",
-        (_ui: any, theme: any) => new StatusLineWidget(theme, leftOnlyRaw),
+        (_ui: any, theme: any) => new StatusLineWidget(theme, "", leftOnlyRaw, onlyRegion ? buildRegionText : undefined),
         { placement: "belowEditor" },
       );
     } else {
