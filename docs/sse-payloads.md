@@ -199,18 +199,21 @@ the widget against its compression budget on every rollover. Detection keys
 off the model id suffix client-side — SSE heartbeats carry no `service_tier`,
 so a queued flex request would otherwise be invisible until generation starts.
 
-## Billed Cost Flows Into pi's Own Cost Surfaces
+## Billed Cost Stays Widget-Only
 
-The extension wraps the assistant-message event stream so the final `done`
-message's `usage.cost` is rewritten to the metered billed cost (data-chunk
-`cost_usd` first, `: cost` comment sum as fallback) instead of pi-ai's
-list-priced token cost — see `wrapStreamWithBilledCost` /
-`applyBilledCostToUsage`. pi computes footers, session totals and /stats by
-scanning committed entries' `usage.cost`, so after this rewrite every pi cost
-surface reflects the actual bill (flex discounts included) as soon as the
-turn finishes. One ordering caveat: the usage chunk (which pi-ai list-prices)
-arrives *before* the cost frames, so anyone reading cost mid-stream must wait
-for the tee reader to settle — hence the wrapper awaits it at `done`.
+`request_cost_usd` is the metered billed (energy-derived, flex-discounted)
+cost. Committed `done` messages keep pi-ai's token list-priced `usage.cost` —
+pi's footer, session totals, and /stats stay token-priced; the billed amount
+renders only in this extension's energy widget (and the
+`neuralwatt:turn-energy` event). Each turn's energy entry carries both
+figures — `cost_usd` (billed) and `list_cost_usd` (the turn's usage-chunk
+tokens × model list price) — so the spread stays auditable per turn. When
+|list − billed| for a turn exceeds $0.01 the extension drops a runnable
+reprobe (`scripts/neuralwatt-billing-<unix-ms>.js`, gitignored) that
+re-queries the same model and prints the live pair next to the recorded one.
+This reverses an earlier design that rewrote `usage.cost` in-stream with the
+billed amount, which made every pi cost surface mirror the widget and
+conflated the two pricing systems.
 
 ## Adding New Upstream Fields
 

@@ -86,7 +86,7 @@ describe("streamNeuralwatt live flex queue state", () => {
     const stream = streamNeuralwatt(flexModel as any, context as any, { apiKey: "sk-test" } as any);
     expect(liveFlexQueueState().streams).toBe(1);
     expect(liveFlexQueueState().startedAt).toEqual(expect.any(Number));
-    // mock's inner stream auto-ends on a microtask → pump settles → onSettled
+    // mock's inner stream auto-ends on a microtask → passthrough settles → stop callback
     await vi.waitFor(() => expect(liveFlexQueueState()).toEqual({ streams: 0, startedAt: null }));
   });
 

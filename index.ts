@@ -7,6 +7,9 @@
  * Neuralwatt returns energy consumption data (kWh, Joules) and request cost with every
  * API response. This extension captures that data via a custom stream handler that tees
  * the HTTP response (the OpenAI SDK discards SSE comments), then displays it in the pi footer.
+ * Committed messages keep pi-ai's token list-priced usage.cost (pi's footer, session totals,
+ * and /stats stay token-priced); the billed, energy-derived amount — including any flex
+ * discount — is displayed only in this extension's widget.
  *
  * Model resolution strategy: Stale-While-Revalidate
  *   1. Serve stale immediately: disk cache → embedded models.json (zero-latency)
@@ -73,6 +76,7 @@
  * @see https://neuralwatt.com
  */
 
+import { fileURLToPath } from "node:url";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
@@ -643,6 +647,10 @@ async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
 interface EnergyEvent {
   energy_joules: number;
   cost_usd: number;
+  // Token list-price equivalent of the turn (usage-chunk tokens × model list
+  // prices), kept next to the billed cost_usd so the energy-vs-token spread
+  // stays auditable per turn; also feeds the >1¢ mismatch probe.
+  list_cost_usd?: number;
   // Raw SSE comment payloads, stored verbatim. These are the source of
   // truth for MCR replay — future upstream fields flow through without
   // code changes. Not used for energy/cost replay (those are cumulative
@@ -1835,20 +1843,10 @@ export function liveFlexQueueState(): { streams: number; startedAt: number | nul
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
-export async function readEnergyFromTee(
-  body: ReadableStream<Uint8Array>,
-  onCost?: (costUsd: number | undefined) => void,
-): Promise<void> {
+export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
-  // Billed cost for THIS stream. The flex/SSE data chunk's cost_usd is exact
-  // per-request; the `: cost` comment sum is the fallback (same number the
-  // turn_end energy entry reads via pendingCostUsd, which is a global
-  // accumulator — the local copy is what the stream-cost wrapper needs to
-  // isolate concurrent requests from each other).
-  let dataCostUsd: number | undefined;
-  let commentCostUsd = 0;
 
   // Per-stream flex telemetry, captured from SSE data chunks (not comments).
   // Flex requests held in the server-side queue emit heartbeat chunks —
@@ -1875,15 +1873,6 @@ export async function readEnergyFromTee(
         if (firstHeartbeatCreated !== undefined && created) {
           pendingQueueSeconds = Math.max(0, Number(created[1]) - firstHeartbeatCreated);
         }
-      }
-    }
-    if (trimmed.includes('"cost_usd"')) {
-      try {
-        const chunk = JSON.parse(trimmed.slice(5));
-        const c = chunk?.cost_usd;
-        if (typeof c === "number" && Number.isFinite(c) && c >= 0) dataCostUsd = c;
-      } catch {
-        // Malformed cost data frame, ignore
       }
     }
     if (/"usage"\s*:\s*\{/.test(trimmed)) {
@@ -1927,7 +1916,6 @@ export async function readEnergyFromTee(
       try {
         const cost = JSON.parse(trimmed.slice(7));
         pendingCostUsd += cost.request_cost_usd || 0;
-        commentCostUsd += cost.request_cost_usd || 0;
         pendingCostRaw = cost;
       } catch {
         // Malformed cost comment, ignore
@@ -1962,12 +1950,6 @@ export async function readEnergyFromTee(
   }
 
   try {
-    onCost?.(dataCostUsd ?? (commentCostUsd > 0 ? commentCostUsd : undefined));
-  } catch {
-    // Non-fatal: cost observer is best-effort
-  }
-
-  try {
     reader.releaseLock();
   } catch {
     // Ignore
@@ -1975,55 +1957,26 @@ export async function readEnergyFromTee(
 }
 
 /**
- * Overwrite an assistant message's usage.cost with NeuralWatt's metered billed
- * cost, scaling the component costs proportionally so they still sum to total.
- * pi's footer and session totals scan usage.cost on committed entries
- * (usage-totals), so fixing the message in-stream (before pi commits it) makes
- * every cost surface exact for the current turn — flex discounts included.
+ * Pass an assistant-message event stream through untouched — including the
+ * `done` message's token list-priced `usage.cost` — and invoke onSettled once
+ * the stream ends (normally or on a mid-iteration error).
+ *
+ * Billed (energy-derived, flex-discounted) cost is deliberately NOT patched
+ * into the stream: pi's footer, session totals, and /stats scan committed
+ * entries' `usage.cost`, and those surfaces are meant to stay token-priced.
+ * The billed amount is widget-only (sessionCostUsd → buildEnergyText); each
+ * turn's energy entry records both figures (`cost_usd` vs `list_cost_usd`)
+ * so the spread stays auditable. The wrapper survives solely because the
+ * flex queue badge lifecycle hangs off stream start/settle.
  */
-export function applyBilledCostToUsage(usage: any, billedUsd: number): void {
-  const c = usage?.cost;
-  if (!c) return;
-  const listTotal = typeof c.total === "number" && c.total > 0 ? c.total : 0;
-  if (listTotal > 0) {
-    const factor = billedUsd / listTotal;
-    c.input = (c.input || 0) * factor;
-    c.output = (c.output || 0) * factor;
-    c.cacheRead = (c.cacheRead || 0) * factor;
-    c.cacheWrite = (c.cacheWrite || 0) * factor;
-  } else {
-    c.input = 0;
-    c.output = 0;
-    c.cacheRead = 0;
-    c.cacheWrite = 0;
-  }
-  c.total = billedUsd;
-}
-
-/**
- * Wrap an assistant-message event stream so that the final `done` message's
- * usage.cost carries the metered billed cost (revealed by SSE cost/data
- * frames) instead of the list-priced token cost pi-ai computed when parsing
- * the usage chunk. getBilledUsd is awaited at `done`, before the event is
- * pushed downstream — the caller resolves it after the request's tee reader
- * has settled so the billed number is guaranteed parsed.
- */
-export function wrapStreamWithBilledCost(
+export function wrapStreamPassthrough(
   inner: AssistantMessageEventStream,
-  getBilledUsd: () => Promise<number | undefined>,
   onSettled?: () => void,
 ): AssistantMessageEventStream {
   const out = createAssistantMessageEventStream();
   (async () => {
     try {
       for await (const event of inner) {
-        if (event.type === "done") {
-          const billed = await getBilledUsd();
-          const msg = (event as any).message;
-          if (typeof billed === "number" && Number.isFinite(billed) && billed >= 0 && msg?.usage) {
-            applyBilledCostToUsage(msg.usage, billed);
-          }
-        }
         out.push(event as any);
       }
     } catch {
@@ -2033,6 +1986,109 @@ export function wrapStreamWithBilledCost(
     onSettled?.();
   })();
   return out as AssistantMessageEventStream;
+}
+
+// A turn whose billed (energy-derived) cost diverges from the token list
+// price by more than this many dollars gets a runnable reprobe script
+// dropped under scripts/ (see appendTmpScript below).
+export const BILLING_LIST_MISMATCH_THRESHOLD_USD = 0.01;
+
+/** Write a gitignored temp script under scripts/, next to this file. Never throws. */
+export function appendTmpScript(filename: string, contents: string): void {
+  try {
+    const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "scripts");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, filename), contents);
+  } catch {
+    // Diagnostics are best-effort; a failed write must not break the turn.
+  }
+}
+
+/**
+ * Render a runnable probe for a turn whose billed cost diverged from token
+ * list math past the threshold. Re-queries the same model cheaply, computes
+ * both numbers, and prints them next to the recorded turn. The API key comes
+ * from ~/.pi/agent/auth.json or NEURALWATT_API_KEY and is never printed.
+ */
+export function renderBillingMismatchProbe(opts: {
+  generatedAt: string;
+  modelId: string;
+  usageTokens: { prompt: number; completion: number; cachedInput: number };
+  billedUsd: number;
+  listUsd: number;
+}): string {
+  return `#!/usr/bin/env node
+/**
+ * Billing-vs-list mismatch probe — auto-generated by pi-neuralwatt-provider.
+ *
+ * Turn at ${opts.generatedAt} on ${opts.modelId}:
+ *   billed (energy-derived, widget): $${opts.billedUsd}
+ *   token list price (pi surfaces):  $${opts.listUsd}
+ *   usage tokens: ${opts.usageTokens.prompt} in / ${opts.usageTokens.completion} out / ${opts.usageTokens.cachedInput} cached
+ *
+ * pi's cost surfaces intentionally keep token list pricing; the billed amount
+ * lives only in the energy widget. This turn diverged by > $0.01, so the
+ * extension wrote this script.
+ */
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const MODEL = ${JSON.stringify(opts.modelId)};
+const BASE_URL = "https://api.neuralwatt.com/v1/chat/completions";
+
+function resolveApiKey() {
+  try {
+    const auth = JSON.parse(fs.readFileSync(path.join(os.homedir(), ".pi", "agent", "auth.json"), "utf8"));
+    const cred = auth?.neuralwatt;
+    if (cred?.type === "api_key" && typeof cred.key === "string") return cred.key;
+  } catch { /* fall through to env */ }
+  return process.env.NEURALWATT_API_KEY;
+}
+
+const key = resolveApiKey();
+if (!key) {
+  console.error("No API key: add a 'neuralwatt' credential to ~/.pi/agent/auth.json or set NEURALWATT_API_KEY.");
+  process.exit(1);
+}
+
+const res = await fetch(BASE_URL, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Authorization: \`Bearer \${key}\` },
+  body: JSON.stringify({
+    model: MODEL,
+    messages: [{ role: "user", content: "Reply with the single word: ok" }],
+    max_tokens: 16,
+    stream: false,
+  }),
+});
+const body = await res.json();
+if (!res.ok) { console.error("HTTP " + res.status, JSON.stringify(body).slice(0, 300)); process.exit(1); }
+
+const u = body.usage ?? {};
+const modelsFile = JSON.parse(fs.readFileSync(new URL("../models.json", import.meta.url), "utf8"));
+const list = Array.isArray(modelsFile) ? modelsFile : (modelsFile.models ?? Object.values(modelsFile));
+const cost = list.find((m) => m.id === MODEL)?.cost;
+const cached = u.prompt_tokens_details?.cached_tokens ?? 0;
+const listUsd = cost
+  ? ((u.prompt_tokens ?? 0) * cost.input + (u.completion_tokens ?? 0) * cost.output + cached * (cost.cacheRead ?? 0)) / 1e6
+  : null;
+
+console.log(JSON.stringify({
+  recorded_turn: {
+    at: ${JSON.stringify(opts.generatedAt)},
+    usage_tokens: ${JSON.stringify(opts.usageTokens)},
+    billed_usd: ${opts.billedUsd},
+    list_usd: ${opts.listUsd},
+  },
+  reprobe: {
+    model: MODEL,
+    tokens: { prompt: u.prompt_tokens, completion: u.completion_tokens, cached },
+    billed_usd: body.cost?.request_cost_usd ?? null,
+    list_usd: listUsd,
+  },
+}, null, 2));
+`;
 }
 
 // ─── Custom Streaming Provider ────────────────────────────────────────────────
@@ -2102,8 +2158,6 @@ export function streamNeuralwatt(
   // Concurrent main-agent and helper-model requests can finish in either order;
   // a global save/patch/restore stack leaves a stale wrapper installed when they
   // settle out of order. Each call now owns its interceptor and reader.
-  let requestBilledUsd: number | undefined;
-  let requestTee: Promise<void> | undefined;
   const upstreamFetch = streamOptions.fetch ?? globalThis.fetch;
   const energyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await upstreamFetch(input, init);
@@ -2111,11 +2165,7 @@ export function streamNeuralwatt(
     if (!response.body || !url.includes("/chat/completions")) return response;
 
     const [bodyForSdk, bodyForEnergy] = response.body.tee();
-    const teePromise = readEnergyFromTee(bodyForEnergy, (costUsd) => {
-      requestBilledUsd = costUsd;
-    });
-    requestTee = teePromise;
-    trackTeeReader(teePromise);
+    trackTeeReader(readEnergyFromTee(bodyForEnergy));
     return new Response(bodyForSdk, {
       headers: response.headers,
       status: response.status,
@@ -2131,15 +2181,17 @@ export function streamNeuralwatt(
     ...(onPayload ? { onPayload } : {}),
   });
 
-  // Rewrite the committed message's usage.cost to the metered billed cost
-  // (flex-discounted when queued) before pi stores it — footers, session
-  // totals, and /stats then reflect what's actually billed, in real time.
+  // Committed usage.cost keeps pi-ai's token list price: pi's footer,
+  // session totals, and /stats stay token-priced. The billed (energy-derived,
+  // flex-discounted) amount is widget-only (sessionCostUsd); turn_end records
+  // it on the energy entry next to a list_cost_usd audit figure.
+  //
+  // The flex queue badge lifecycle still hangs off a stream wrapper: the
+  // ticker comes up when a -flex stream starts and clears when it settles.
   const isFlexModel = neuralwattModel.id.endsWith("-flex");
-  if (isFlexModel) markLiveFlexStream();
-  return wrapStreamWithBilledCost(inner, async () => {
-    try { await requestTee; } catch { /* tee already swallows its own errors */ }
-    return requestBilledUsd;
-  }, isFlexModel ? stopLiveFlexStream : undefined);
+  if (!isFlexModel) return inner;
+  markLiveFlexStream();
+  return wrapStreamPassthrough(inner, stopLiveFlexStream);
 }
 
 // ─── Extension Entry Point ────────────────────────────────────────────────────
@@ -2315,6 +2367,27 @@ export default function (pi: ExtensionAPI) {
       if (pendingEnergyRaw) entry.sse_energy_raw = pendingEnergyRaw;
       if (pendingMcrSessionRaw) entry.sse_mcr_session_raw = pendingMcrSessionRaw;
       if (pendingCostRaw) entry.sse_cost_raw = pendingCostRaw;
+      // Token list-price equivalent of the billed cost: this turn's usage
+      // chunk token counts × the active model's per-million list prices.
+      // Stored so the widget's billed $ can be cross-checked against the
+      // token math pi's own cost surfaces display.
+      let listCostUsd: number | undefined;
+      let probeModelId = "unknown";
+      try {
+        const activeModel = ctx.model as NeuralwattModel | undefined;
+        const modelCost = activeModel?.cost;
+        probeModelId = activeModel?.id ?? "unknown";
+        if (modelCost && pendingUsage && ((pendingUsage.prompt ?? 0) > 0 || (pendingUsage.completion ?? 0) > 0)) {
+          listCostUsd =
+            ((pendingUsage.prompt ?? 0) * (modelCost.input ?? 0) +
+              (pendingUsage.completion ?? 0) * (modelCost.output ?? 0) +
+              (pendingUsage.cachedInput ?? 0) * (modelCost.cacheRead ?? 0)) /
+            1e6;
+          entry.list_cost_usd = Number(listCostUsd.toFixed(9));
+        }
+      } catch {
+        // Stale ctx.model getter mid-teardown: skip list pricing for this turn.
+      }
       // Flex telemetry captured from SSE data chunks. The footer badge is
       // sticky (latest-wins): a flex turn sets it, a standard-tier turn
       // clears it.
@@ -2346,6 +2419,28 @@ export default function (pi: ExtensionAPI) {
       pi.appendEntry(ENERGY_ENTRY_TYPE, entry);
       sessionEnergyJoules += pendingEnergyJoules;
       sessionCostUsd += pendingCostUsd;
+      // |list − billed| > 1¢: drop a runnable reprobe under scripts/ so the
+      // divergence can be re-measured live. Skipped under vitest.
+      if (
+        listCostUsd !== undefined &&
+        Math.abs(listCostUsd - pendingCostUsd) > BILLING_LIST_MISMATCH_THRESHOLD_USD &&
+        !process.env.VITEST
+      ) {
+        appendTmpScript(
+          `neuralwatt-billing-${Date.now()}.js`,
+          renderBillingMismatchProbe({
+            generatedAt: new Date().toISOString(),
+            modelId: probeModelId,
+            usageTokens: {
+              prompt: pendingUsage?.prompt ?? 0,
+              completion: pendingUsage?.completion ?? 0,
+              cachedInput: pendingUsage?.cachedInput ?? 0,
+            },
+            billedUsd: pendingCostUsd,
+            listUsd: Number(listCostUsd.toFixed(9)),
+          }),
+        );
+      }
 
       // Emit per-turn energy data so other extensions (e.g. pi-tps) can display the
       // energy-billed cost as a $/M-tokens rate. pi dispatches turn_end handlers
