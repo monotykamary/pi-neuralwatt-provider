@@ -248,7 +248,12 @@ The file is auto-populated with defaults on first run.
     // Override a single thinking level without redeclaring the map:
     "glm-5.2":        { "thinkingLevelMap": { "high": "max" }, "compat": { "chatTemplateKwargs": { "clear_thinking": true } } },
     // Force a smaller image cap:
-    "kimi-k2.7-code": { "vision": { "maxImagesPerRequest": 4 } }
+    "kimi-k2.7-code": { "vision": { "maxImagesPerRequest": 4 } },
+    // Evict over-cap images in bigger batches (default: quarter of the cap,
+    // min 2; 1 = exact per-turn FIFO). Bigger batches mean fewer cold prefills:
+    // each eviction invalidates the server-side prefix cache at the dropped
+    // image, so batching buys several image additions per cache rewrite.
+    "kimi-k3": { "vision": { "evictionHysteresis": 8 } }
   }
 }
 ```

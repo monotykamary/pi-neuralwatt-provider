@@ -118,7 +118,7 @@ interface NeuralwattConfig {
 interface ModelOverride {
   thinkingLevelMap?: Record<string, string | null>;
   compat?: Record<string, any>;
-  vision?: { maxImagesPerRequest?: number };
+  vision?: { maxImagesPerRequest?: number; evictionHysteresis?: number };
 }
 
 const CONFIG_PATH = path.join(getAgentDir(), "extensions", "neuralwatt.json");
@@ -181,7 +181,7 @@ function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | unde
       if (Object.keys(m).length > 0) parsed.thinkingLevelMap = m;
     }
     if (o.compat && typeof o.compat === "object") parsed.compat = o.compat as Record<string, any>;
-    if (o.vision && typeof o.vision === "object") parsed.vision = o.vision as { maxImagesPerRequest?: number };
+    if (o.vision && typeof o.vision === "object") parsed.vision = o.vision as { maxImagesPerRequest?: number; evictionHysteresis?: number };
     if (Object.keys(parsed).length > 0) result[id] = parsed;
   }
   return Object.keys(result).length > 0 ? result : undefined;
@@ -256,6 +256,8 @@ interface NeuralwattModel {
   };
   vision?: {
     maxImagesPerRequest?: number;
+    /** Eviction batch size for the image-limit transform; see transform.ts. */
+    evictionHysteresis?: number;
   };
 }
 
@@ -2107,7 +2109,8 @@ export function streamNeuralwatt(
   }
 
   const maxImages = model.vision?.maxImagesPerRequest as number | undefined;
-  const transformedContext = transformContextForImageLimit(context, maxImages);
+  const evictionHysteresis = model.vision?.evictionHysteresis as number | undefined;
+  const transformedContext = transformContextForImageLimit(context, maxImages, evictionHysteresis);
 
   const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || resolveBaseUrl() };
 

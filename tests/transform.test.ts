@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { transformContextForImageLimit } from "../transform";
+import { imageEvictionCount, transformContextForImageLimit } from "../transform";
 
 function img(id: number) {
   return { type: "image" as const, data: `i${id}`, mimeType: "image/png" };
@@ -110,5 +110,120 @@ describe("transformContextForImageLimit", () => {
       ],
     };
     expect(transformContextForImageLimit(c, 0)).toBe(c);
+  });
+});
+
+describe("imageEvictionCount slide schedule", () => {
+  it("returns 0 at or under the cap", () => {
+    expect(imageEvictionCount(0, 20)).toBe(0);
+    expect(imageEvictionCount(20, 20)).toBe(0);
+  });
+
+  it("drops everything for a zero cap", () => {
+    expect(imageEvictionCount(7, 0)).toBe(7);
+  });
+
+  it("defaults to quarter-cap chunks (H=5 at cap 20)", () => {
+    // Slides at counts 21, 26, 31, 36, 41, ...
+    expect(imageEvictionCount(21, 20)).toBe(5);
+    expect(imageEvictionCount(25, 20)).toBe(5);
+    expect(imageEvictionCount(26, 20)).toBe(10);
+    expect(imageEvictionCount(40, 20)).toBe(20);
+    expect(imageEvictionCount(41, 20)).toBe(25);
+  });
+
+  it("small caps default to H=2", () => {
+    expect(imageEvictionCount(5, 4)).toBe(2);
+    expect(imageEvictionCount(6, 4)).toBe(2);
+    expect(imageEvictionCount(7, 4)).toBe(4);
+  });
+
+  it("treats H=1 as exact FIFO", () => {
+    for (const count of [21, 22, 30]) {
+      expect(imageEvictionCount(count, 20, 1)).toBe(count - 20);
+    }
+  });
+
+  it("honors an explicit override", () => {
+    // H=3 at cap 10: slides at 11, 14, 17, ...
+    expect(imageEvictionCount(11, 10, 3)).toBe(3);
+    expect(imageEvictionCount(13, 10, 3)).toBe(3);
+    expect(imageEvictionCount(14, 10, 3)).toBe(6);
+    expect(imageEvictionCount(16, 10, 3)).toBe(6);
+    expect(imageEvictionCount(17, 10, 3)).toBe(9);
+  });
+
+  it("clamps the override so at least one image survives", () => {
+    expect(imageEvictionCount(4, 3, 99)).toBe(2);
+    expect(imageEvictionCount(4, 3, 99)).toBeLessThan(4);
+  });
+});
+
+describe("transformContextForImageLimit hysteresis", () => {
+  function imgs(n: number, start = 1) {
+    return Array.from({ length: n }, (_, i) => img(start + i));
+  }
+  function keptIds(out: any): string[] {
+    return out.messages.flatMap((m: any) =>
+      (m.content as any[]).filter((b) => b.type === "image").map((b) => b.data),
+    );
+  }
+
+  it("evicts a full chunk at the first crossing (21 imgs, cap 20 → keeps newest 16)", () => {
+    const c = { messages: [{ role: "user", content: [txt("shots"), ...imgs(21)] }] };
+    const out = transformContextForImageLimit(c, 20);
+    expect(keptIds(out)).toEqual(imgs(16, 6).map((b) => b.data));
+    // Text survives.
+    expect(out.messages[0].content[0]).toEqual(txt("shots"));
+  });
+
+  it("keeps the payload prefix-stable between slide events", () => {
+    const first = { role: "user", content: imgs(21) };
+    const out21 = transformContextForImageLimit({ messages: [first] }, 20);
+    // Next turn: one image appended — eviction must NOT fire again.
+    const out22 = transformContextForImageLimit(
+      { messages: [first, { role: "user", content: [img(22)] }] },
+      20,
+    );
+    const prev = keptIds(out21);
+    const next = keptIds(out22);
+    expect(next.slice(0, prev.length)).toEqual(prev);
+    expect(next).toHaveLength(prev.length + 1);
+  });
+
+  it("slides by another chunk at the next boundary (26 imgs → keeps newest 16)", () => {
+    const c = { messages: [{ role: "user", content: imgs(26) }] };
+    const out = transformContextForImageLimit(c, 20);
+    expect(keptIds(out)).toEqual(imgs(16, 11).map((b) => b.data));
+  });
+
+  it("honors an explicit per-model hysteresis override", () => {
+    const out11 = transformContextForImageLimit({ messages: [{ role: "user", content: imgs(11) }] }, 10, 3);
+    expect(keptIds(out11)).toEqual(imgs(8, 4).map((b) => b.data));
+    const out14 = transformContextForImageLimit({ messages: [{ role: "user", content: imgs(14) }] }, 10, 3);
+    expect(keptIds(out14)).toEqual(imgs(8, 7).map((b) => b.data));
+  });
+
+  it("H=1 reproduces exact per-turn FIFO", () => {
+    const out = transformContextForImageLimit({ messages: [{ role: "user", content: imgs(22) }] }, 20, 1);
+    expect(keptIds(out)).toEqual(imgs(20, 3).map((b) => b.data));
+  });
+
+  it("inserts placeholders for image-only messages caught in a batch", () => {
+    const c = {
+      messages: [
+        { role: "user", content: [img(1)] },
+        { role: "user", content: [img(2)] },
+        { role: "user", content: [img(3)] },
+        { role: "user", content: [img(4)] },
+      ],
+    };
+    const out = transformContextForImageLimit(c, 3, 2);
+    expect(out.messages).toEqual([
+      { role: "user", content: [txt("[image removed]")] },
+      { role: "user", content: [txt("[image removed]")] },
+      { role: "user", content: [img(3)] },
+      { role: "user", content: [img(4)] },
+    ]);
   });
 });
