@@ -95,3 +95,14 @@ export function streamOpenAICompletions(
   queueMicrotask(() => stream.end());
   return stream;
 }
+
+export function streamOpenAIResponses(
+  model: any,
+  context: any,
+  options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  __streamCalls.push({ model, context, options });
+  const stream = new AssistantMessageEventStream();
+  queueMicrotask(() => stream.end());
+  return stream;
+}

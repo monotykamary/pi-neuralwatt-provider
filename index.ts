@@ -79,7 +79,7 @@
 import { fileURLToPath } from "node:url";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { clampThinkingLevel, streamOpenAICompletions } from "@earendil-works/pi-ai/compat";
+import { clampThinkingLevel, streamOpenAICompletions, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
 import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
@@ -93,7 +93,7 @@ import path from "path";
 
 type DisplayMode = "widget" | "statusbar" | "off";
 
-interface NeuralwattConfig {
+export interface NeuralwattConfig {
   energy: DisplayMode;
   quota: DisplayMode;
   mcr: DisplayMode;
@@ -113,6 +113,22 @@ interface NeuralwattConfig {
   // chat_template_kwargs) without editing the extension. Deep-merges `compat`
   // and `thinkingLevelMap`; replaces scalars. See README "Model Overrides".
   modelOverrides?: Record<string, ModelOverride>;
+  // Which Neuralwatt API surface generation requests use.
+  //   "chat-completions" (default) — /v1/chat/completions. The only surface that
+  //     emits the `: energy` / `: cost` / `: mcr-session` SSE comments this
+  //     extension's energy, carbon, cost, and flex reporting depend on.
+  //   "responses" — /v1/responses (staged rollout). NOTE: as of the staged
+  //     rollout Neuralwatt does NOT emit energy/cost SSE comments on this
+  //     surface, so energy/carbon/cost/flex/quota reporting goes dark and flex
+  //     queue telemetry is unavailable. Opt in only to evaluate it.
+  api?: "chat-completions" | "responses";
+  // Responses-surface retention (only read when api === "responses").
+  //   true (default) — send store:true. Neuralwatt is ZDR (no training on
+  //     customer data), and store:true preserves a reasoning model's thinking
+  //     across turns server-side. Turns are account-scoped and expire after 24h.
+  //   false — send store:false: retain nothing (reasoning continuity is lost
+  //     between turns). The escape hatch for zero-retention requirements.
+  storeResponses?: boolean;
 }
 
 interface ModelOverride {
@@ -138,7 +154,7 @@ function parseBaseUrl(value: unknown): string | undefined {
   return /^https?:\/\/.+/.test(url) ? url : undefined;
 }
 
-const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: false };
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: false, api: "chat-completions" };
 
 function loadConfig(): NeuralwattConfig {
   try {
@@ -151,6 +167,8 @@ function loadConfig(): NeuralwattConfig {
       hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : false,
       baseUrl: parseBaseUrl(raw.baseUrl),
       modelOverrides: parseModelOverrides(raw.modelOverrides),
+      api: raw.api === "responses" ? "responses" : "chat-completions",
+      storeResponses: typeof raw.storeResponses === "boolean" ? raw.storeResponses : true,
     };
   } catch {
     // Config file missing or invalid — populate with defaults so the user can discover it
@@ -188,6 +206,12 @@ function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | unde
 }
 
 let config = loadConfig();
+
+// Test hook: override the active config (e.g. to flip the api surface) without
+// touching the on-disk neuralwatt.json. Pass undefined to reload from disk.
+export function __setConfigForTest(override: NeuralwattConfig | undefined): void {
+  config = override ?? loadConfig();
+}
 
 // Read-modify-write the raw config JSON without parsing/validating, so unknown
 // fields a user added (or other modelOverride fields) survive a settings-UI write.
@@ -1880,16 +1904,21 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
     if (/"usage"\s*:\s*\{/.test(trimmed)) {
       try {
         const chunk = JSON.parse(trimmed.slice(5));
-        const u = chunk?.usage;
+        // Chat completions carry usage at the chunk root; the Responses API
+        // nests it under `response` on the terminal response.completed event.
+        const u = chunk?.usage ?? chunk?.response?.usage;
         if (u && typeof u === "object") {
-          pendingUsage = {
-            prompt: typeof u.prompt_tokens === "number" ? u.prompt_tokens : undefined,
-            completion: typeof u.completion_tokens === "number" ? u.completion_tokens : undefined,
-            cachedInput:
-              typeof u.prompt_tokens_details?.cached_tokens === "number"
-                ? u.prompt_tokens_details.cached_tokens
-                : 0,
-          };
+          // Responses names the fields input_tokens/output_tokens; chat names
+          // them prompt_tokens/completion_tokens. Accept both.
+          const prompt = typeof u.prompt_tokens === "number" ? u.prompt_tokens
+            : typeof u.input_tokens === "number" ? u.input_tokens : undefined;
+          const completion = typeof u.completion_tokens === "number" ? u.completion_tokens
+            : typeof u.output_tokens === "number" ? u.output_tokens : undefined;
+          const cachedInput =
+            typeof u.prompt_tokens_details?.cached_tokens === "number" ? u.prompt_tokens_details.cached_tokens
+            : typeof u.input_tokens_details?.cached_tokens === "number" ? u.input_tokens_details.cached_tokens
+            : 0;
+          pendingUsage = { prompt, completion, cachedInput };
         }
       } catch {
         // Malformed usage chunk, ignore
@@ -2112,7 +2141,14 @@ export function streamNeuralwatt(
   const evictionHysteresis = model.vision?.evictionHysteresis as number | undefined;
   const transformedContext = transformContextForImageLimit(context, maxImages, evictionHysteresis);
 
-  const neuralwattModel = { ...model, api: "openai-completions", baseUrl: model.baseUrl || resolveBaseUrl() };
+  // API surface selection. Default chat-completions; opt into the staged
+  // /v1/responses rollout via { "api": "responses" } in neuralwatt.json.
+  const useResponses = config.api === "responses";
+  const neuralwattModel = {
+    ...model,
+    api: useResponses ? "openai-responses" : "openai-completions",
+    baseUrl: model.baseUrl || resolveBaseUrl(),
+  };
 
   // pi hands the user's thinking selection to streamSimple providers as
   // `options.reasoning` (a raw ThinkingLevel). The raw streamOpenAICompletions
@@ -2165,7 +2201,7 @@ export function streamNeuralwatt(
   const energyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const response = await upstreamFetch(input, init);
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    if (!response.body || !url.includes("/chat/completions")) return response;
+    if (!response.body || !(url.includes("/chat/completions") || url.includes("/responses"))) return response;
 
     const [bodyForSdk, bodyForEnergy] = response.body.tee();
     trackTeeReader(readEnergyFromTee(bodyForEnergy));
@@ -2176,13 +2212,47 @@ export function streamNeuralwatt(
     });
   };
 
-  const inner = streamOpenAICompletions(neuralwattModel, transformedContext, {
-    ...streamOptions,
-    fetch: energyFetch,
-    reasoningEffort,
-    apiKey,
-    ...(onPayload ? { onPayload } : {}),
-  });
+  let inner: AssistantMessageEventStream;
+  if (useResponses) {
+    // /v1/responses (staged rollout). Retention follows config.storeResponses
+    // (default true — Neuralwatt is ZDR, and store:true preserves a reasoning
+    // model's thinking across turns server-side). pi-ai hardcodes store:false
+    // (its OpenAI Responses privacy default), so we override it here. pi never
+    // sends previous_response_id (it resends full history), but strip any
+    // caller-supplied one when retention is off, since an unstored turn can't
+    // be chained from. The reasoning.encrypted_content include pi-ai adds for
+    // reasoning models is always stripped — Neuralwatt lists it as unsupported.
+    const store = config.storeResponses !== false;
+    const responsesOnPayload = async (params: any, mdl: any) => {
+      let p = onPayload ? await onPayload(params, mdl) : params;
+      if (p === undefined) p = params;
+      if (p && typeof p === "object") {
+        if (Array.isArray(p.include)) {
+          const kept = p.include.filter((i: any) => i !== "reasoning.encrypted_content");
+          if (kept.length > 0) p = { ...p, include: kept };
+          else { const { include: _drop, ...rest } = p; p = rest; }
+        }
+        if (!store && "previous_response_id" in p) { const { previous_response_id: _drop, ...rest } = p; p = rest; }
+        if (p.store !== store) p = { ...p, store };
+      }
+      return p;
+    };
+    inner = streamOpenAIResponses(neuralwattModel, transformedContext, {
+      ...streamOptions,
+      fetch: energyFetch,
+      reasoningEffort,
+      apiKey,
+      onPayload: responsesOnPayload,
+    } as any);
+  } else {
+    inner = streamOpenAICompletions(neuralwattModel, transformedContext, {
+      ...streamOptions,
+      fetch: energyFetch,
+      reasoningEffort,
+      apiKey,
+      ...(onPayload ? { onPayload } : {}),
+    });
+  }
 
   // Committed usage.cost keeps pi-ai's token list price: pi's footer,
   // session totals, and /stats stay token-priced. The billed (energy-derived,

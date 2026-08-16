@@ -214,6 +214,8 @@ The file is auto-populated with defaults on first run.
 | `carbon` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Carbon (session CO₂ + fleet grid/region badge) display mode |
 | `hideOnOtherProvider` | `true`, `false` | `false` | Hide all Neuralwatt display when a non-Neuralwatt model is active |
 | `baseUrl` | Any `http(s)` URL | `https://api.neuralwatt.com/v1` | Override the API URL for all requests (chat, `/models`, `/quota`). For use with a proxy such as Headroom |
+| `api` | `"chat-completions"`, `"responses"` | `"chat-completions"` | Generation API surface. `"responses"` opts into the staged `/v1/responses` rollout — see below |
+| `storeResponses` | `true`, `false` | `true` | Responses-surface retention. Only read when `api` is `"responses"` — see below |
 
 **Display modes:**
 
@@ -222,6 +224,24 @@ The file is auto-populated with defaults on first run.
 - **`"off"`** — Hidden entirely. For `"quota": "off"`, the `/v1/quota` API fetch is also skipped (saving a network round-trip). Energy data is still parsed from the SSE stream and persisted to the session even when `"off"`.
 
 `mcr` and `carbon` follow the same three modes. `carbon` adds two segments: **session CO₂** (`🌱X g CO₂`, on the energy line — cumulative, like energy) and a **fleet grid/region badge** (on the quota line — the latest request's electricity grid, e.g. `🇺🇸 PJM 416`). The badge compresses flag → intensity → balancing-authority tag as the terminal narrows, and a `~` marks intensities from a fallback carbon source. The badge also renders **standalone** (on its own) when `quota` is `off`, so the fleet location still shows.
+
+#### API surface: `chat-completions` vs `responses`
+
+By default the extension generates through `/v1/chat/completions`. Setting `"api": "responses"` switches generation to the [Responses API](https://portal.neuralwatt.com/docs/api/responses) (`/v1/responses`), Neuralwatt's staged-rollout successor surface:
+
+```json
+{
+  "api": "responses"
+}
+```
+
+What changes on `responses`:
+
+- **Retention defaults to `store: true`.** Neuralwatt is ZDR (no training on customer data), so retention isn't a privacy exposure, and `store: true` preserves a reasoning model's thinking across turns server-side. Stored turns are account-scoped and expire after 24h. Set `"storeResponses": false` to retain nothing (reasoning continuity is then lost between turns). Note pi-ai's underlying Responses client hardcodes `store: false`; this extension overrides it to follow `storeResponses`.
+- **Reasoning still works.** Thinking levels map onto the Responses `reasoning.effort` parameter. The `reasoning.encrypted_content` include pi-ai adds is stripped (Neuralwatt lists it as unsupported).
+- **Token usage and billing are unchanged** — Responses downgrades to the chat pipeline internally, so usage, rate limits, and prefix caching match chat completions.
+
+> **Caveat (staged rollout):** as of now Neuralwatt does **not** emit the `: energy` / `: cost` / `: mcr-session` SSE comments on `/v1/responses`. On this surface the energy, carbon, cost, and flex reporting (and the quota fetch they trigger) go dark, and flex queue telemetry is unavailable — only token usage is captured. Keep `chat-completions` (the default) if you rely on the energy widget. Requires an enrolled account; un-enrolled accounts get a `404`.
 
 **Example — custom quota footer:** If you use your own unified quota footer extension, disable the built-in quota display to avoid duplication:
 
