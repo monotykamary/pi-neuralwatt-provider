@@ -512,7 +512,7 @@
   },
   {
     "id": "Qwen/Qwen3.8-27B-FP8",
-    "name": "Qwen 3.8 27B FP8",
+    "name": "Qwen 3.8 27B",
     "reasoning": true,
     "input": [
       "text",
