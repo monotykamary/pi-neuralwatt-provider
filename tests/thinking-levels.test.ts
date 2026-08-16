@@ -222,6 +222,66 @@ describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
   });
 });
 
+describe("Qwen 3.8 effective thinkingLevelMap", () => {
+  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any);
+  const expectedMap = {
+    off: "none",
+    minimal: null,
+    low: "low",
+    medium: "medium",
+    high: null,
+    xhigh: "xhigh",
+    max: null,
+  };
+
+  it("maps onto Qwen3.8's three native levels (low / medium / xhigh)", () => {
+    expect(catalog.find((m: any) => m.id === "Qwen/Qwen3.8-27B-FP8")?.thinkingLevelMap).toEqual(expectedMap);
+  });
+
+  it("only emits wire values the gateway accepts (none / low / medium / xhigh)", () => {
+    // The gateway rejects high and max for this model: "Unexpected reasoning
+    // effort high. Supported types are xhigh (default), medium, and low."
+    const map = catalog.find((m: any) => m.id === "Qwen/Qwen3.8-27B-FP8")?.thinkingLevelMap;
+    const accepted = new Set(["none", "low", "medium", "xhigh"]);
+    for (const [level, wire] of Object.entries(map as Record<string, unknown>)) {
+      expect(wire === null || accepted.has(wire as string), `${level} maps to rejected value ${wire}`).toBe(true);
+    }
+  });
+
+  it("hides high/max so pi up-clamps them to xhigh instead of sending rejected values", () => {
+    // Null levels are hidden; clampThinkingLevel up-clamps a hidden selection to
+    // the next visible level. high/max → xhigh, minimal → low: every pi level
+    // lands on a gateway-accepted wire value.
+    const map = catalog.find((m: any) => m.id === "Qwen/Qwen3.8-27B-FP8")?.thinkingLevelMap;
+    expect(map?.high).toBeNull();
+    expect(map?.max).toBeNull();
+  });
+
+  it("patch.json carries the map (live metadata publishes reasoning: null for this model)", () => {
+    // The live /v1/models entry publishes metadata.reasoning: null, so the SWR
+    // transform can never derive this map — patch.json is the only layer that
+    // survives a models.json regen and every live refresh.
+    expect((patchesData as Record<string, any>)["Qwen/Qwen3.8-27B-FP8"]?.thinkingLevelMap).toEqual(expectedMap);
+  });
+
+  it("opts into thinking_token_budget so reasoning can't consume the whole response", () => {
+    // Qwen3.x has no gateway-default thinking_token_budget (Neuralwatt docs).
+    // Without this flag pi-ai never sends the budget, and a runaway reasoning
+    // loop can exhaust the shared max_tokens with no answer. patch.json merges
+    // the flag INTO models.json's compat (deep-merge), preserving the
+    // supportsDeveloperRole: false flag from the base entry.
+    const compat = catalog.find((m: any) => m.id === "Qwen/Qwen3.8-27B-FP8")?.compat;
+    expect(compat?.supportsThinkingTokenBudget).toBe(true);
+    expect(compat?.supportsDeveloperRole).toBe(false);
+  });
+
+  it("budget flag is scoped to Qwen3.8 (older Qwens keep their existing behavior)", () => {
+    for (const id of ["qwen3.5-397b", "qwen3.6-35b"]) {
+      expect((patchesData as Record<string, any>)[id]?.compat?.supportsThinkingTokenBudget).toBeUndefined();
+    }
+  });
+});
+
 describe("chatTemplateKwargs onPayload injection", () => {
   let originalFetch: typeof globalThis.fetch;
 

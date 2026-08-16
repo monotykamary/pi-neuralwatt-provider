@@ -268,5 +268,19 @@
     "compat": {
       "maxTokensField": "max_tokens"
     }
+  },
+  "Qwen/Qwen3.8-27B-FP8": {
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": null,
+      "xhigh": "xhigh",
+      "max": null
+    },
+    "compat": {
+      "supportsThinkingTokenBudget": true
+    }
   }
 }
