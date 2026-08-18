@@ -527,10 +527,20 @@
     "contextWindow": 262128,
     "maxTokens": 65536,
     "compat": {
-      "supportsDeveloperRole": false
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
     },
     "vision": {
       "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": null,
+      "xhigh": "xhigh",
+      "max": null
     }
   },
   {
