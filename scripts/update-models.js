@@ -436,10 +436,16 @@ function buildModels(baseModels, customModels, patchData) {
 /**
  * Generate README model table
  */
+function formatCost(cost) {
+  if (cost === 0) return '—';
+  if (cost === null || cost === undefined) return '—';
+  return '$' + cost.toFixed(2);
+}
+
 function generateReadmeTable(models) {
   const lines = [
-    '| Model | Context | Vision | Reasoning | Input $/M | Output $/M |',
-    '|-------|---------|--------|-----------|-----------|------------|',
+    '| Model | Context | Vision | Reasoning | Input $/M | Cache Read $/M | Output $/M |',
+    '|-------|---------|--------|-----------|-----------|-----------------|------------|',
   ];
 
   for (const model of models) {
@@ -447,10 +453,11 @@ function generateReadmeTable(models) {
     const context = formatContextWindow(model.contextWindow);
     const vision = model.input.includes('image') ? '✅' : '❌';
     const reasoning = model.reasoning ? '✅' : '❌';
-    const inputCost = `$${model.cost.input.toFixed(2)}`;
-    const outputCost = `$${model.cost.output.toFixed(2)}`;
+    const inputCost = formatCost(model.cost.input);
+    const cacheReadCost = formatCost(model.cost.cacheRead);
+    const outputCost = formatCost(model.cost.output);
 
-    lines.push(`| ${name} | ${context} | ${vision} | ${reasoning} | ${inputCost} | ${outputCost} |`);
+    lines.push(`| ${name} | ${context} | ${vision} | ${reasoning} | ${inputCost} | ${cacheReadCost} | ${outputCost} |`);
   }
 
   return lines.join('\n');
@@ -587,6 +594,31 @@ function updateDeprecatedModels(modelsJsonPath, newModels) {
   return deprecated;
 }
 
+/**
+ * Grace-period deprecated models (deprecatedAt within TTL) with metadata stripped.
+ * Keeps the README table serving models that are delisted but still within their
+ * 14-day grace window.
+ */
+function withDeprecatedForReadme(models) {
+  const deprecatedPath = path.join(path.dirname(MODELS_JSON_PATH), 'deprecated-models.json');
+  let deprecated = {};
+  try {
+    const parsed = JSON.parse(fs.readFileSync(deprecatedPath, 'utf8'));
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) deprecated = parsed;
+  } catch { /* no graveyard yet */ }
+  const now = Date.now();
+  const seen = new Set(models.map(m => m.id));
+  const extras = [];
+  for (const entry of Object.values(deprecated)) {
+    if (!entry || !entry.id || seen.has(entry.id)) continue;
+    const removedAt = Date.parse(entry.deprecatedAt || '');
+    if (Number.isNaN(removedAt) || now - removedAt > DEPRECATED_MODEL_TTL_MS) continue;
+    const m = { ...entry };
+    delete m.deprecatedAt;
+    extras.push(m);
+  }
+  return extras.length > 0 ? [...models, ...extras] : models;
+}
 async function main() {
   // Without a key the API answers 200 with only the PUBLIC model list, so an
   // unauthenticated run does not fail: it silently rewrites models.json (and
@@ -738,7 +770,7 @@ async function main() {
     }
 
     // Build merged list: base → patch → custom (custom takes precedence on overlap)
-    const allModels = buildModels(transformedModels, customModels, patch);
+    const allModels = buildModels(withDeprecatedForReadme(transformedModels), customModels, patch);
     console.log(
       `Total: ${allModels.length} models (${transformedModels.length} upstream + ${customModels.length} custom)`
     );

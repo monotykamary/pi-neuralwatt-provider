@@ -106,62 +106,6 @@
       "maxTokensField": "max_tokens"
     }
   },
-  "kimi-k2.6": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null,
-      "max": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true,
-      "chatTemplateKwargs": {
-        "preserve_thinking": true
-      }
-    }
-  },
-  "kimi-k2.6-flex": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null,
-      "max": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true,
-      "chatTemplateKwargs": {
-        "preserve_thinking": true
-      }
-    }
-  },
-  "kimi-k2.6-fast": {
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
-  "neuralwatt/kimi-k2.6-long": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null,
-      "max": null
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true,
-      "chatTemplateKwargs": {
-        "preserve_thinking": true
-      }
-    }
-  },
   "kimi-k2.7-code": {
     "thinkingLevelMap": {
       "minimal": null,
@@ -219,30 +163,6 @@
       "chatTemplateKwargs": {
         "preserve_thinking": true
       }
-    }
-  },
-  "qwen3.5-397b": {
-    "maxTokens": 65536,
-    "thinkingLevelMap": {
-      "off": "none",
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": null,
-      "max": null
-    },
-    "compat": {
-      "thinkingFormat": "qwen-chat-template",
-      "supportsReasoningEffort": false,
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
-  "qwen3.5-397b-fast": {
-    "maxTokens": 65536,
-    "compat": {
-      "maxTokensField": "max_tokens"
     }
   },
   "qwen3.6-35b": {
