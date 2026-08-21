@@ -1,2 +1,5 @@
 # Local pi-agent state — never publish
 .pi/
+
+# Auto-generated billing probe scripts (runtime diagnostics when billed amount diverges) — dev artifacts, never ship
+scripts/neuralwatt-billing-*.js
