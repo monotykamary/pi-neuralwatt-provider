@@ -116,6 +116,35 @@
     }
   },
   {
+    "id": "deepseek-v4-pro",
+    "name": "DeepSeek V4-Pro",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1,
+      "output": 3,
+      "cacheRead": 0.1,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    }
+  },
+  {
     "id": "gemma-4-31b",
     "name": "Gemma 4 31B",
     "reasoning": true,
