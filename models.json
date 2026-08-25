@@ -87,35 +87,6 @@
     }
   },
   {
-    "id": "deepseek-ai/DeepSeek-V4-Flash",
-    "name": "DeepSeek V4 Flash 0731 (Canary)",
-    "reasoning": true,
-    "input": [
-      "text"
-    ],
-    "cost": {
-      "input": 0.14,
-      "output": 0.28,
-      "cacheRead": 0.028,
-      "cacheWrite": 0
-    },
-    "contextWindow": 1048560,
-    "maxTokens": 65536,
-    "compat": {
-      "supportsDeveloperRole": false,
-      "supportsReasoningEffort": true
-    },
-    "thinkingLevelMap": {
-      "off": "none",
-      "minimal": null,
-      "low": null,
-      "medium": null,
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    }
-  },
-  {
     "id": "deepseek-v4-pro",
     "name": "DeepSeek V4-Pro",
     "reasoning": true,
