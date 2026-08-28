@@ -222,6 +222,32 @@ describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
   });
 });
 
+describe("GLM-5.3 patch.json thinkingLevelMap", () => {
+  const patches = patchesData as Record<string, any>;
+
+  it("exposes off/low/high/max — the four levels empirically verified on the API", () => {
+    // Neuralwatt publishes metadata.reasoning: null for glm-5.3 (parameter
+    // reaches the model, levels unverified per their docs), so the sync derives
+    // no map. Live probes at temperature 0 show exactly four behaviors:
+    // none = no reasoning, low ≈ shallow, high ≈ shallow+, and everything else
+    // (minimal, medium, xhigh, max, omitted) is byte-identical full-depth
+    // reasoning. Hide the collapsed aliases; expose the distinct wire values.
+    expect(patches["glm-5.3"]?.thinkingLevelMap).toEqual({
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: null,
+      high: "high",
+      xhigh: null,
+      max: "max",
+    });
+  });
+
+  it("glm-5.3 max maps to max (model's default deep mode is its deepest level)", () => {
+    expect(patches["glm-5.3"]?.thinkingLevelMap?.max).toBe("max");
+  });
+});
+
 describe("Qwen 3.8 effective thinkingLevelMap", () => {
   const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any);
   const expectedMap = {

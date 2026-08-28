@@ -106,6 +106,17 @@
       "maxTokensField": "max_tokens"
     }
   },
+  "glm-5.3": {
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    }
+  },
   "kimi-k2.7-code": {
     "thinkingLevelMap": {
       "minimal": null,
