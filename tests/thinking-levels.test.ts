@@ -430,7 +430,7 @@ describe("patch.json chatTemplateKwargs enablement (behavioral E2E-verified)", (
 
   // Kimi K2.6/K2.7 reasoning variants: preserve_thinking: true
   // (doc-backed; behavioral E2E: 0/6 → 6/6 recall)
-  const kimi = ["kimi-k2.6", "kimi-k2.7-code"];
+  const kimi = ["kimi-k2.7-code", "kimi-k2.7-code-flex"];
   for (const id of kimi) {
     it(`${id} opts into full-history via preserve_thinking: true`, () => {
       expect(patches[id]?.compat?.chatTemplateKwargs).toEqual({ preserve_thinking: true });
