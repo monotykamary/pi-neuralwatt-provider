@@ -117,6 +117,17 @@
       "max": "max"
     }
   },
+  "glm-5.3-flash": {
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    }
+  },
   "kimi-k2.7-code": {
     "thinkingLevelMap": {
       "minimal": null,
