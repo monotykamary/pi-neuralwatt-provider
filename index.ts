@@ -662,7 +662,6 @@ async function revalidateModels(apiKey: string | undefined, embeddedModels: Neur
 // ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
 
 let cachedApiKey: string | undefined;
-let revalidateAbort: AbortController | null = null;
 
 async function resolveApiKey(modelRegistry: ModelRegistry): Promise<void> {
   cachedApiKey = await modelRegistry.getApiKeyForProvider("neuralwatt") ?? undefined;
@@ -2308,6 +2307,11 @@ export default function (pi: ExtensionAPI) {
   let modelSelectNotifyTimer: ReturnType<typeof setTimeout> | null = null;
   const MODEL_SELECT_NOTIFY_DELAY_MS = 250;
 
+  // Factory-scoped (not module-scoped) so in-process child sessions created via
+  // createAgentSession() by subagent/runner extensions get their own controller
+  // instead of sharing — and aborting — the parent's background revalidation.
+  let revalidateAbort: AbortController | null = null;
+
   // Notify preserved-thinking state for a preserve-flag model. Computed from the
   // build pipeline (config as source of truth, not event.model.compat), deferred
   // so pi core's (and other extensions') notifications land first, and cancelled
@@ -2357,20 +2361,23 @@ export default function (pi: ExtensionAPI) {
       // soon as the first turn completes (updateEnergyStatus gates display
       // on hasNeuralwattSession, so nothing is shown before then).
       if (config.quota !== "off") {
+        // .catch: the session may be disposed (runner invalidated without a
+        // session_shutdown event) before this lands, making ctx stale — swallow
+        // instead of crashing pi with an unhandled rejection.
         fetchQuota(cachedApiKey || "", signal).then((quota) => {
           if (quota && !signal.aborted) {
             cachedQuota = quota;
             updateEnergyStatus(ctx);
           }
-        });
+        }).catch(() => {});
         refreshFlexPricingMeasurement(cachedApiKey || "", signal);
       }
       revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
         if (freshBase && !signal.aborted) {
           pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(freshBase, customModels, patches, config.modelOverrides)));
         }
-      });
-    });
+      }).catch(() => {});
+    }).catch(() => {});
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
@@ -2568,7 +2575,7 @@ export default function (pi: ExtensionAPI) {
           cachedQuota = quota;
           updateEnergyStatus(ctx);
         }
-      });
+      }).catch(() => {});
     }
   });
 
