@@ -54,7 +54,6 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | Qwen 3.8 27B | 262K | ✅ | ✅ | $0.45 | $0.25 | $3.20 |
 | Qwen3.6 35B | 131K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
 | Qwen3.6 35B Fast | 131K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
-| DeepSeek V4 Flash 0731 (Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | — | $2.59 |
