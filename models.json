@@ -116,6 +116,26 @@
     }
   },
   {
+    "id": "deepseek-v4.1-flash",
+    "name": "DeepSeek V4.1 Flash",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.15,
+      "output": 0.6,
+      "cacheRead": 0.015,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 65536,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    }
+  },
+  {
     "id": "gemma-4-31b",
     "name": "Gemma 4 31B",
     "reasoning": true,

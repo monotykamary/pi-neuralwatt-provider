@@ -222,6 +222,29 @@ describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
   });
 });
 
+describe("DeepSeek V4.1 Flash patch.json thinkingLevelMap", () => {
+  const patches = patchesData as Record<string, any>;
+
+  it("exposes off/low/high/max while metadata.reasoning is still null", () => {
+    // Live /v1/models publishes metadata.reasoning: null for this model, so the
+    // sync cannot derive a map. Keep the Neuralwatt DeepSeek off→none disable
+    // plus the V4.1 Flash distinct wire values used on zro (low / high / max).
+    expect(patches["deepseek-v4.1-flash"]?.thinkingLevelMap).toEqual({
+      off: "none",
+      minimal: null,
+      low: "low",
+      medium: null,
+      high: "high",
+      xhigh: null,
+      max: "max",
+    });
+  });
+
+  it("replays assistant reasoning_content on follow-up turns", () => {
+    expect(patches["deepseek-v4.1-flash"]?.compat?.requiresReasoningContentOnAssistantMessages).toBe(true);
+  });
+});
+
 describe("GLM-5.3 patch.json thinkingLevelMap", () => {
   const patches = patchesData as Record<string, any>;
 
