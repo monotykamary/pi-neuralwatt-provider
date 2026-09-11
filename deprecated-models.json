@@ -1,1 +1,36 @@
-{}
+{
+  "Qwen/Qwen3.8-27B-FP8": {
+    "id": "Qwen/Qwen3.8-27B-FP8",
+    "name": "Qwen 3.8 27B",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.45,
+      "output": 3.2,
+      "cacheRead": 0.25,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": null,
+      "xhigh": "xhigh",
+      "max": null
+    },
+    "deprecatedAt": "2026-09-11T02:00:25.972Z"
+  }
+}

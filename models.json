@@ -178,6 +178,35 @@
     }
   },
   {
+    "id": "glm-5.3-flex",
+    "name": "GLM 5.3 (flex)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 1.45,
+      "output": 4.5,
+      "cacheRead": 0.145,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": null,
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    }
+  },
+  {
     "id": "glm-5.2",
     "name": "GLM-5.2",
     "reasoning": true,
@@ -573,8 +602,41 @@
     }
   },
   {
-    "id": "Qwen/Qwen3.8-27B-FP8",
+    "id": "qwen-3.8-27b",
     "name": "Qwen 3.8 27B",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.45,
+      "output": 3.2,
+      "cacheRead": 0.25,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "maxTokens": 131072,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": null,
+      "xhigh": "xhigh",
+      "max": null
+    }
+  },
+  {
+    "id": "qwen-3.8-27b-flex",
+    "name": "Qwen 3.8 27B (flex)",
     "reasoning": true,
     "input": [
       "text",
@@ -608,6 +670,39 @@
   {
     "id": "qwen3.6-35b",
     "name": "Qwen3.6 35B",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.29,
+      "output": 1.15,
+      "cacheRead": 0.029,
+      "cacheWrite": 0
+    },
+    "contextWindow": 131056,
+    "maxTokens": 131056,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 4
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": null
+    }
+  },
+  {
+    "id": "qwen3.6-35b-flex",
+    "name": "Qwen3.6 35B (flex)",
     "reasoning": true,
     "input": [
       "text",
