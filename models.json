@@ -120,7 +120,8 @@
     "name": "DeepSeek V4.1 Flash",
     "reasoning": true,
     "input": [
-      "text"
+      "text",
+      "image"
     ],
     "cost": {
       "input": 0.15,
@@ -133,6 +134,9 @@
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
     }
   },
   {
@@ -432,6 +436,39 @@
   {
     "id": "glm-5.3-flash",
     "name": "GLM-5.3 Flash",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.15,
+      "output": 0.5,
+      "cacheRead": 0.03,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": null,
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    }
+  },
+  {
+    "id": "glm-5.3-flash-flex",
+    "name": "GLM-5.3 Flash (flex)",
     "reasoning": true,
     "input": [
       "text",
