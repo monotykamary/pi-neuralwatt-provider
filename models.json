@@ -137,6 +137,15 @@
     },
     "vision": {
       "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": "xhigh",
+      "max": "max"
     }
   },
   {
