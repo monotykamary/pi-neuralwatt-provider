@@ -224,12 +224,25 @@ The file is auto-populated with defaults on first run.
 | `baseUrl` | Any `http(s)` URL | `https://api.neuralwatt.com/v1` | Override the API URL for all requests (chat, `/models`, `/quota`). For use with a proxy such as Headroom |
 | `api` | `"chat-completions"`, `"responses"` | `"chat-completions"` | Generation API surface. `"responses"` opts into the staged `/v1/responses` rollout — see below |
 | `storeResponses` | `true`, `false` | `true` | Responses-surface retention. Only read when `api` is `"responses"` — see below |
+| `glyphs` | `"auto"`, `"unicode"`, `"ascii"` | `"auto"` | Footer glyph set; `"auto"` degrades to ASCII on legacy terminals (mintty/Cygwin) — see below |
 
 **Display modes:**
 
 - **`"widget"`** — Shown in the dedicated below-editor status line. Energy on the left, quota on the right, padded to terminal width.
 - **`"statusbar"`** — Shown in the built-in pi status bar. When both are set to `"statusbar"`, they're combined with a ` | ` separator: `⚡X J $Y | plan ● kWh ∙ $bal`.
 - **`"off"`** — Hidden entirely. For `"quota": "off"`, the `/v1/quota` API fetch is also skipped (saving a network round-trip). Energy data is still parsed from the SSE stream and persisted to the session even when `"off"`.
+
+**Glyphs on legacy terminals.** Older mintty/Cygwin builds measure emoji and ambiguous-width codepoints (the energy bolt, the carbon leaf, the quota dot, the region flag) with cell-width tables that disagree with pi’s. The status bar absorbs that difference, but the widget line is padded to the terminal width, so one over-wide glyph can wrap it physically while pi counts a single row — the footer then desyncs and leaves ghost rows behind. `"auto"` (the default) swaps the glyph set for ASCII equivalents on detected legacy terminals:
+
+| Widget | `"unicode"` (elsewhere) | `"ascii"` (auto on mintty/Cygwin) |
+|--------|---------------------------|-------------------------------------|
+| Energy | ⚡5.68 mWh | *5.68 mWh |
+| Carbon | 🌱1.24 g CO₂ | ~1.24 g CO2 |
+| Region | 🇺🇸 PJM 416 | PJM 416 |
+| Quota | ● 25.0/33.0 kWh ∙ $12.34 | o 25.0/33.0 kWh - $12.34 |
+| Flex | flex −82% | flex -82% |
+
+The widget also never paints the terminal's last column, and clamps an explicit `"unicode"` to ASCII on legacy terminals (one notice per session); the status bar is not edge-padded and always honors the exact choice.
 
 `mcr` and `carbon` follow the same three modes. `carbon` adds two segments: **session CO₂** (`🌱X g CO₂`, on the energy line — cumulative, like energy) and a **fleet grid/region badge** (on the quota line — the latest request's electricity grid, e.g. `🇺🇸 PJM 416`). The badge compresses flag → intensity → balancing-authority tag as the terminal narrows, and a `~` marks intensities from a fallback carbon source. The badge also renders **standalone** (on its own) when `quota` is `off`, so the fleet location still shows.
 

@@ -129,6 +129,10 @@ export interface NeuralwattConfig {
   //   false — send store:false: retain nothing (reasoning continuity is lost
   //     between turns). The escape hatch for zero-retention requirements.
   storeResponses?: boolean;
+  // Footer glyph set. "auto" degrades to ASCII on legacy terminals
+  // (mintty/Cygwin), whose cell-width tables disagree with the width math
+  // and can wrap the full-width widget line. "unicode"/"ascii" force a set.
+  glyphs: GlyphMode;
 }
 
 interface ModelOverride {
@@ -146,6 +150,68 @@ function parseDisplayMode(value: unknown, fallback: DisplayMode): DisplayMode {
   return fallback;
 }
 
+// ─── Glyph policy (legacy terminals) ─────────────────────────────────────────
+// Older mintty/Cygwin builds measure emoji and ambiguous-width codepoints with
+// their own cell tables, which disagree with termVisWidth(). The below-editor
+// widget pads its line to the terminal width, so one over-wide glyph wraps it
+// physically while pi counts a single logical row: the differential renderer
+// then desyncs and leaves ghost rows and stale footer lines behind. The
+// statusbar is not edge-padded, so it absorbs the same disagreement.
+export type GlyphMode = "auto" | "unicode" | "ascii";
+
+export interface NwGlyphs {
+  bolt: string;    // energy icon
+  leaf: string;    // carbon icon
+  co2: string;     // carbon suffix
+  key: string;     // key-allowance icon
+  dot: string;     // active status dot
+  blocked: string; // blocked / past-due dot
+  warn: string;    // overage warning
+  sep: string;     // quota separator
+  middot: string;  // energy/flex separator
+  minus: string;   // flex discount sign
+  ellipsis: string;// truncation marker
+  flagMode: "emoji" | "code"; // regional-indicator pair vs 2-letter code
+}
+
+export const UNICODE_GLYPHS: NwGlyphs = { bolt: "⚡", leaf: "🌱", co2: "CO₂", key: "⚷", dot: "●", blocked: "⊘", warn: "⚠", sep: "∙", middot: "·", minus: "−", ellipsis: "…", flagMode: "emoji" };
+export const ASCII_GLYPHS: NwGlyphs = { bolt: "*", leaf: "~", co2: "CO2", key: "#", dot: "o", blocked: "x", warn: "!", sep: "-", middot: "-", minus: "-", ellipsis: "...", flagMode: "code" };
+
+const VALID_GLYPH_MODES = new Set<string>(["auto", "unicode", "ascii"]);
+
+function parseGlyphMode(value: unknown, fallback: GlyphMode): GlyphMode {
+  return typeof value === "string" && VALID_GLYPH_MODES.has(value) ? (value as GlyphMode) : fallback;
+}
+
+/** True for terminals whose cell-width tables are known to disagree with the
+ * width math in this file (older mintty/Cygwin builds). */
+export function detectLegacyTerminal(env: NodeJS.ProcessEnv = process.env): boolean {
+  const termProgram = env.TERM_PROGRAM ?? "";
+  const term = env.TERM ?? "";
+  return (
+    termProgram === "mintty" ||
+    termProgram === "cygwin" ||
+    termProgram === "msys" ||
+    term.startsWith("cygwin") ||
+    term.startsWith("msys")
+  );
+}
+
+export function resolveGlyphSet(mode: GlyphMode, env: NodeJS.ProcessEnv = process.env): NwGlyphs {
+  if (mode === "unicode") return UNICODE_GLYPHS;
+  if (mode === "ascii") return ASCII_GLYPHS;
+  return detectLegacyTerminal(env) ? ASCII_GLYPHS : UNICODE_GLYPHS;
+}
+
+/** Widget-safe variant: the widget line is padded to the terminal width, so
+ * one glyph the terminal measures wider than termVisWidth() wraps it and
+ * corrupts pi's renderer. An explicit "unicode" choice is therefore clamped
+ * to ASCII for widget content on legacy terminals; statusbar content is not
+ * edge-padded and keeps the caller's choice. */
+export function resolveWidgetGlyphSet(mode: GlyphMode, env: NodeJS.ProcessEnv = process.env): NwGlyphs {
+  if (mode === "unicode" && detectLegacyTerminal(env)) return ASCII_GLYPHS;
+  return resolveGlyphSet(mode, env);
+}
 // Accept only absolute http(s) URLs; strip trailing slashes so "/quota" style
 // joins never produce double slashes. Anything else falls back to BASE_URL.
 function parseBaseUrl(value: unknown): string | undefined {
@@ -154,7 +220,7 @@ function parseBaseUrl(value: unknown): string | undefined {
   return /^https?:\/\/.+/.test(url) ? url : undefined;
 }
 
-const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: false, api: "chat-completions" };
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: false, api: "chat-completions", glyphs: "auto" };
 
 function loadConfig(): NeuralwattConfig {
   try {
@@ -169,6 +235,7 @@ function loadConfig(): NeuralwattConfig {
       modelOverrides: parseModelOverrides(raw.modelOverrides),
       api: raw.api === "responses" ? "responses" : "chat-completions",
       storeResponses: typeof raw.storeResponses === "boolean" ? raw.storeResponses : true,
+      glyphs: parseGlyphMode(raw.glyphs, "auto"),
     };
   } catch {
     // Config file missing or invalid — populate with defaults so the user can discover it
@@ -736,6 +803,7 @@ let teeReader: Promise<void> | undefined;
 let liveFlexStreams = 0;
 let liveFlexStartedAt: number | null = null;
 let liveFlexTicker: ReturnType<typeof setInterval> | undefined;
+let widgetGlyphClampNotified = false;
 let lastFooterCtx: { ui: any } | null = null;
 
 function trackTeeReader(reader: Promise<void>): void {
@@ -925,7 +993,7 @@ function replayEnergyEvents(ctx: any): void {
 //   ⚡5.68 mWh $0.003829                                 drop carbon
 //   ⚡5.68mWh $0.003829                                 compressed + cost
 //   ⚡5.68mWh                                            compressed only
-function buildEnergyText(maxCols: number): string | undefined {
+function buildEnergyText(maxCols: number, glyphs: NwGlyphs = UNICODE_GLYPHS): string | undefined {
   const hasEnergy = sessionEnergyJoules > 0 || sessionCostUsd > 0;
   const hasMCR = config.mcr !== "off" && sessionMcrFp !== null;
   const hasCarbon = config.carbon !== "off" && sessionCarbonGrams > 0;
@@ -937,16 +1005,16 @@ function buildEnergyText(maxCols: number): string | undefined {
     const elapsed = liveFlexElapsedSeconds(liveFlexStartedAt, Date.now());
     return elapsed === undefined
       ? undefined
-      : flexLiveTiers(elapsed, sessionFlexDiscountPct !== undefined ? effectiveFlexDiscountPct() : undefined)[0];
+      : flexLiveTiers(elapsed, sessionFlexDiscountPct !== undefined ? effectiveFlexDiscountPct() : undefined, glyphs)[0];
   }
 
   // Energy string levels
   const energyStr = formatEnergy(sessionEnergyJoules);
   const costStr = formatCost(sessionCostUsd);
   const compactStr = formatEnergyCompact(sessionEnergyJoules);
-  const coreFull = `⚡${energyStr} ${costStr}`;
-  const coreCompressedCost = `⚡${compactStr} ${costStr}`;
-  const coreCompressedOnly = `⚡${compactStr}`;
+  const coreFull = `${glyphs.bolt}${energyStr} ${costStr}`;
+  const coreCompressedCost = `${glyphs.bolt}${compactStr} ${costStr}`;
+  const coreCompressedOnly = `${glyphs.bolt}${compactStr}`;
 
   // MCR parts in priority order (least important dropped first)
   // compact → APC → drop< → fp → "MCR" prefix
@@ -975,7 +1043,7 @@ function buildEnergyText(maxCols: number): string | undefined {
   if (hasCarbon) {
     const carbonStr = formatCarbon(sessionCarbonGrams);
     const carbonCompact = formatCarbonCompact(sessionCarbonGrams);
-    carbonTiers.push(`🌱${carbonStr} CO₂`, `🌱${carbonStr}`, `🌱${carbonCompact}`, "");
+    carbonTiers.push(`${glyphs.leaf}${carbonStr} ${glyphs.co2}`, `${glyphs.leaf}${carbonStr}`, `${glyphs.leaf}${carbonCompact}`, "");
   } else {
     carbonTiers.push("");
   }
@@ -990,11 +1058,11 @@ function buildEnergyText(maxCols: number): string | undefined {
     ? liveFlexElapsedSeconds(liveFlexStartedAt, Date.now())
     : undefined;
   if (liveWait !== undefined) {
-    flexTiers.push(...flexLiveTiers(liveWait, sessionFlexDiscountPct !== undefined ? effectiveFlexDiscountPct() : undefined));
+    flexTiers.push(...flexLiveTiers(liveWait, sessionFlexDiscountPct !== undefined ? effectiveFlexDiscountPct() : undefined, glyphs));
   } else if (sessionFlexDiscountPct !== undefined) {
-    const pctTag = `flex −${effectiveFlexDiscountPct()}%`;
+    const pctTag = `flex ${glyphs.minus}${effectiveFlexDiscountPct()}%`;
     const q = sessionFlexQueueSeconds && sessionFlexQueueSeconds > 0
-      ? ` · queued ${formatQueueWait(sessionFlexQueueSeconds)}`
+      ? ` ${glyphs.middot} queued ${formatQueueWait(sessionFlexQueueSeconds)}`
       : "";
     flexTiers.push(`${pctTag}${q}`, pctTag, "");
   } else {
@@ -1045,7 +1113,7 @@ function buildEnergyText(maxCols: number): string | undefined {
   }
 
   // Nothing fits — truncate the most compressed form
-  return truncateAnsi(candidates[candidates.length - 1], maxCols);
+  return truncateAnsi(candidates[candidates.length - 1], maxCols, glyphs.ellipsis);
 }
 
 // Compact energy format: merges value and unit with no space ("5.68mWh" vs "5.68 mWh").
@@ -1096,17 +1164,17 @@ function countryFlag(cc: string | null): string {
   return String.fromCodePoint(0x1f1e6 + a.charCodeAt(0) - 65, 0x1f1e6 + a.charCodeAt(1) - 65);
 }
 
-export function parseGridId(gridId: string): GridDisplay {
+export function parseGridId(gridId: string, glyphs: NwGlyphs = UNICODE_GLYPHS): GridDisplay {
   const parts = gridId.split("-");
   if (parts.length === 1) {
     // bare country code (e.g. "FI", "FR")
-    return { country: gridId, flag: countryFlag(gridId), short: gridId, name: gridId };
+    return { country: gridId, flag: glyphs.flagMode === "emoji" ? countryFlag(gridId) : gridId, short: gridId, name: gridId };
   }
   // "CC-SUBREGION-BA" (e.g. "US-MIDA-PJM"): country = first segment,
   // short = last segment (the balancing-authority id).
   const country = parts[0];
   const short = parts[parts.length - 1];
-  return { country, flag: countryFlag(country), short, name: gridId };
+  return { country, flag: glyphs.flagMode === "emoji" ? countryFlag(country) : country, short, name: gridId };
 }
 
 // Carbon (CO₂e) tiered formatting, mirroring formatEnergy's tiers.
@@ -1136,14 +1204,16 @@ export function formatCarbonCompact(grams: number): string {
 // grids (PJM vs CISO vs DUK). A "~" suffix marks intensities from a fallback
 // carbon_source (regional_fallback / static_fallback), since those are
 // approximate rather than measured.
-function buildRegionTiers(): string[] {
+function buildRegionTiers(glyphs: NwGlyphs = UNICODE_GLYPHS): string[] {
   if (config.carbon === "off" || !sessionGridId) return [""];
-  const g = parseGridId(sessionGridId);
+  const g = parseGridId(sessionGridId, glyphs);
   const fallback =
     sessionGridCarbonSource === "regional_fallback" || sessionGridCarbonSource === "static_fallback";
   const intensity =
     sessionGridIntensity != null ? `${Math.round(sessionGridIntensity)}${fallback ? "~" : ""}` : "";
-  const t1 = [g.flag, g.short, intensity].filter(Boolean).join(" ");
+  // ASCII mode yields the country code for the flag; when it duplicates the
+  // short tag (bare-country grids) drop it so the tier does not read "US US".
+  const t1 = [g.flag === g.short ? "" : g.flag, g.short, intensity].filter(Boolean).join(" ");
   const t2 = [g.short, intensity].filter(Boolean).join(" ");
   const t3 = g.short;
   const tiers = [t1, t2, t3, ""];
@@ -1244,7 +1314,7 @@ function refreshFlexPricingMeasurement(apiKey: string, signal?: AbortSignal): vo
 // (badge held full), then the badge compresses while the quota is at its
 // minimum. When there is no grid (carbon off or no data yet) regionTiers is
 // [""], which makes this a passthrough over the quota tiers.
-function combineQuotaRegion(quotaTiers: string[], regionTiers: string[], maxCols: number): string {
+function combineQuotaRegion(quotaTiers: string[], regionTiers: string[], maxCols: number, glyphs: NwGlyphs = UNICODE_GLYPHS): string {
   const regionFull = regionTiers[0];
   const last = quotaTiers[quotaTiers.length - 1];
   const candidates: string[] = [];
@@ -1259,24 +1329,24 @@ function combineQuotaRegion(quotaTiers: string[], regionTiers: string[], maxCols
   for (const text of candidates) {
     if (termVisWidth(text) <= maxCols) return text;
   }
-  return truncateAnsi(last, maxCols);
+  return truncateAnsi(last, maxCols, glyphs.ellipsis);
 }
 
 // Region badge as a standalone (quota-side) text, compressed to fit maxCols.
 // Used when the quota line is off but carbon is on, so the fleet grid/region
 // badge still renders on its own (latest-wins grid + intensity).
-function buildRegionText(maxCols: number): string | undefined {
-  const tiers = buildRegionTiers();
+function buildRegionText(maxCols: number, glyphs: NwGlyphs = UNICODE_GLYPHS): string | undefined {
+  const tiers = buildRegionTiers(glyphs);
   for (const t of tiers) {
     if (t && termVisWidth(t) <= maxCols) return t;
   }
   return undefined; // only "" fits (or no grid) — don't render
 }
 
-function buildQuotaText(maxCols: number): string | undefined {
+function buildQuotaText(maxCols: number, glyphs: NwGlyphs = UNICODE_GLYPHS): string | undefined {
   if (!cachedQuota) return undefined;
   const q = cachedQuota;
-  const regionTiers = buildRegionTiers();
+  const regionTiers = buildRegionTiers(glyphs);
 
   if (q.subscription) {
     const plan = q.subscription.plan;
@@ -1287,40 +1357,40 @@ function buildQuotaText(maxCols: number): string | undefined {
     const hasKwh = kwhIncl != null && kwhRem != null;
     const credits = formatCost(q.balance.credits_remaining_usd);
     const overage = q.subscription.in_overage === true;
-    const allowance = buildAllowancePart(q);
+    const allowance = buildAllowancePart(q, glyphs);
 
     // Quota tiers from most to least detailed
     const quotaTiers: string[] = [];
-    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits, allowance));
-    if (allowance) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits));
-    if (hasKwh) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, kwhIncl, overage, false, true, credits));
-    if (hasKwh) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, null, overage, false, true, credits));
-    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, true, credits));
-    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, false, credits));
+    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits, allowance, glyphs));
+    if (allowance) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, hasKwh, kwhRem, kwhIncl, overage, true, true, credits, undefined, glyphs));
+    if (hasKwh) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, kwhIncl, overage, false, true, credits, undefined, glyphs));
+    if (hasKwh) quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, true, kwhRem, null, overage, false, true, credits, undefined, glyphs));
+    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, true, credits, undefined, glyphs));
+    quotaTiers.push(buildQuotaSubParts(plan, active, pastDue, false, null, null, overage, false, false, credits, undefined, glyphs));
     quotaTiers.push(plan);
 
-    return combineQuotaRegion(quotaTiers, regionTiers, maxCols);
+    return combineQuotaRegion(quotaTiers, regionTiers, maxCols, glyphs);
   } else {
     // Pay-as-you-go: no subscription
     const credits = formatCost(q.balance.credits_remaining_usd);
-    const allowance = buildAllowancePart(q);
+    const allowance = buildAllowancePart(q, glyphs);
 
     const quotaTiers: string[] = [];
-    quotaTiers.push(["payg", `∙ ${credits}`, allowance].filter(Boolean).join(" "));
-    quotaTiers.push(["payg", `∙ ${credits}`].join(" "));
+    quotaTiers.push(["payg", `${glyphs.sep} ${credits}`, allowance].filter(Boolean).join(" "));
+    quotaTiers.push(["payg", `${glyphs.sep} ${credits}`].join(" "));
     quotaTiers.push("payg");
 
-    return combineQuotaRegion(quotaTiers, regionTiers, maxCols);
+    return combineQuotaRegion(quotaTiers, regionTiers, maxCols, glyphs);
   }
 }
 
-function buildAllowancePart(q: QuotaResponse): string | undefined {
+function buildAllowancePart(q: QuotaResponse, glyphs: NwGlyphs = UNICODE_GLYPHS): string | undefined {
   if (!q.key.allowance) return undefined;
   const a = q.key.allowance;
   const spent = a.limit_usd - a.remaining_usd;
   const periodLabel = { daily: "d", weekly: "wk", monthly: "mo" }[a.period] ?? a.period;
-  let part = `∙ ⚷ ${formatCost(spent)}/${formatCost(a.limit_usd)}/${periodLabel}`;
-  if (a.blocked) part += " ⊘";
+  let part = `${glyphs.sep} ${glyphs.key} ${formatCost(spent)}/${formatCost(a.limit_usd)}/${periodLabel}`;
+  if (a.blocked) part += ` ${glyphs.blocked}`;
   return part;
 }
 
@@ -1340,14 +1410,15 @@ function buildQuotaSubParts(
   showDot: boolean,
   credits: string,
   allowance?: string,
+  glyphs: NwGlyphs = UNICODE_GLYPHS,
 ): string {
   const parts: string[] = [];
   parts.push(plan);
   if (showDot) {
     if (active) {
-      parts.push("●");
+      parts.push(glyphs.dot);
     } else if (pastDue) {
-      parts.push("⊘");
+      parts.push(glyphs.blocked);
     }
   }
   if (showKwh && kwhRem != null) {
@@ -1357,13 +1428,13 @@ function buildQuotaSubParts(
     } else {
       parts.push(`${formatKwh(kwhRem)}kWh`);
     }
-    if (overage) parts.push("⚠");
-    parts.push(`∙ ${credits}`);
+    if (overage) parts.push(glyphs.warn);
+    parts.push(`${glyphs.sep} ${credits}`);
   } else if (!showDot || pastDue) {
-    // No kWh and either no status dot or error dot — need ∙ separator before credits
-    parts.push(`∙ ${credits}`);
+    // No kWh and either no status dot or error dot — need a separator before credits
+    parts.push(`${glyphs.sep} ${credits}`);
   } else {
-    // ● already acts as visual delimiter — skip ∙
+    // The status dot already acts as visual delimiter — skip the separator
     parts.push(credits);
   }
   if (allowance) parts.push(allowance);
@@ -1424,16 +1495,16 @@ function termVisWidth(str: string): number {
 
 // Truncate a string (which may contain ANSI escape sequences or wide chars)
 // to fit within maxCols visible columns. Appends "…" if truncation occurs.
-function truncateAnsi(str: string, maxCols: number): string {
+function truncateAnsi(str: string, maxCols: number, ellipsis = "…"): string {
   if (maxCols <= 0) return "";
   if (termVisWidth(str) <= maxCols) return str;
 
   // Walk the string tracking visible width. When adding the next character
-  // would exceed maxCols - 1 (reserving 1 for "…"), cut and append "…".
+  // would exceed maxCols minus the ellipsis width, cut and append the ellipsis.
   let result = "";
   let visWidth = 0;
   let i = 0;
-  const ellipsisCols = 1; // "…" is 1 visible col
+  const ellipsisCols = ellipsis.length; // 1 for "…", 3 for "..."
   const target = maxCols - ellipsisCols;
 
   while (i < str.length) {
@@ -1472,7 +1543,7 @@ function truncateAnsi(str: string, maxCols: number): string {
     i += cp > 0xffff ? 2 : 1;
   }
 
-  return result + "…";
+  return result + ellipsis;
 }
 
 // Custom Component that renders our status line with width-aware progressive
@@ -1487,57 +1558,64 @@ class StatusLineWidget {
   private rightRaw: string | undefined;
   private compressRight: ((budget: number) => string | undefined) | undefined;
   private theme: any;
+  private glyphs: NwGlyphs;
 
-  constructor(theme: any, leftRaw: string, rightRaw?: string, compressRight?: (budget: number) => string | undefined) {
+  constructor(theme: any, leftRaw: string, rightRaw?: string, compressRight?: (budget: number) => string | undefined, glyphs: NwGlyphs = UNICODE_GLYPHS) {
     this.theme = theme;
     this.leftRaw = leftRaw;
     this.rightRaw = rightRaw;
     this.compressRight = compressRight;
+    this.glyphs = glyphs;
   }
 
   render(width: number): string[] {
+    // Never paint the terminal's last column: the final cell marks a pending
+    // wrap on legacy terminals, and any real-vs-table width disagreement then
+    // scrolls the frame and desyncs pi's row bookkeeping.
+    const w = Math.max(1, width - 1);
     const leftVis = termVisWidth(this.leftRaw);
 
-    // Safety net: if left alone exceeds width, truncate it
-    if (leftVis > width) {
-      return [this.theme.fg("dim", truncateAnsi(this.leftRaw, width))];
+    // Safety net: if the left side alone exceeds the budget, truncate it
+    if (leftVis > w) {
+      return [this.theme.fg("dim", truncateAnsi(this.leftRaw, w, this.glyphs.ellipsis))];
     }
 
     if (!this.rightRaw) {
-      // Left only: theme + pad to width
+      // Left only: theme + pad to the budget
       const themed = this.theme.fg("dim", this.leftRaw);
-      const pad = width - termVisWidth(themed);
+      const pad = w - termVisWidth(themed);
       return [themed + " ".repeat(Math.max(0, pad))];
     }
 
     const rightVis = termVisWidth(this.rightRaw);
-    const available = width - leftVis;
+    const available = w - leftVis;
 
     if (rightVis <= available - 1) {
       // Both fit with at least 1 space between
       const themedL = this.theme.fg("dim", this.leftRaw);
       const themedR = this.theme.fg("dim", this.rightRaw);
-      const pad = width - termVisWidth(themedL) - termVisWidth(themedR);
+      const pad = w - termVisWidth(themedL) - termVisWidth(themedR);
       return [themedL + " ".repeat(Math.max(1, pad)) + themedR];
     }
 
-    // Right doesn't fit at full fidelity — progressive compression.
+    // Right doesn't fit at full fidelity - progressive compression.
     // buildQuotaText(budget) internally tries all levels and returns the
     // highest-fidelity string that fits within budget cols.
     const budget = available - 1;
     if (budget > 0) {
-      const compressed = (this.compressRight ?? buildQuotaText)(budget);
+      const compress = this.compressRight ?? ((b: number) => buildQuotaText(b, this.glyphs));
+      const compressed = compress(budget);
       if (compressed) {
         const themedL = this.theme.fg("dim", this.leftRaw);
         const themedR = this.theme.fg("dim", compressed);
-        const pad = width - termVisWidth(themedL) - termVisWidth(themedR);
+        const pad = w - termVisWidth(themedL) - termVisWidth(themedR);
         return [themedL + " ".repeat(Math.max(1, pad)) + themedR];
       }
     }
 
-    // Nothing from quota fits — left only, themed + padded
+    // Nothing from quota fits - left only, themed + padded
     const themed = this.theme.fg("dim", this.leftRaw);
-    const pad = width - termVisWidth(themed);
+    const pad = w - termVisWidth(themed);
     return [themed + " ".repeat(Math.max(0, pad))];
   }
 }
@@ -1602,14 +1680,27 @@ function updateEnergyStatus(ctx: any): void {
     return;
   }
 
+  // Legacy terminals measure these glyphs with their own cell tables (see
+  // GlyphMode). Widget content clamps to ASCII there; the statusbar is not
+  // edge-padded and keeps the explicit choice.
+  const glyphs = resolveGlyphSet(config.glyphs);
+  const widgetGlyphs = resolveWidgetGlyphSet(config.glyphs);
+  const widgetClamped = widgetGlyphs !== glyphs;
+  if (widgetClamped && !widgetGlyphClampNotified && ctx.hasUI) {
+    widgetGlyphClampNotified = true;
+    ctx.ui.notify("Neuralwatt: widget glyphs stay ASCII on this terminal — unicode glyphs overflow legacy mintty/Cygwin cell widths. Statusbar is unaffected.", "info");
+  }
+
   // Statusbar uses full-fidelity text (no width constraint)
   // MCR is embedded in the energy text when config.mcr is "widget";
   // for statusbar mode, MCR gets its own status key.
-  const energyFull = hasNeuralwattSession ? buildEnergyText(Infinity) : undefined;
+  const energyFull = hasNeuralwattSession ? buildEnergyText(Infinity, glyphs) : undefined;
+  const energyWidget = widgetClamped && hasNeuralwattSession ? buildEnergyText(Infinity, widgetGlyphs) : energyFull;
   const mcrFull = hasNeuralwattSession && config.mcr === "statusbar" && sessionMcrFp
     ? [`MCR ${sessionMcrFp.slice(0, 8)}`, sessionSafeDropBefore > 0 ? `drop<${sessionSafeDropBefore}` : undefined, sessionApcHitRate !== undefined ? `APC ${(sessionApcHitRate * 100).toFixed(0)}%` : undefined, sessionCompactRatio !== undefined ? `compact ${(sessionCompactRatio * 100).toFixed(0)}%` : undefined].filter(Boolean).join(" ")
     : undefined;
-  const quotaFull = hasNeuralwattSession ? buildQuotaText(Infinity) : undefined;
+  const quotaFull = hasNeuralwattSession ? buildQuotaText(Infinity, glyphs) : undefined;
+  const quotaWidget = widgetClamped && hasNeuralwattSession ? buildQuotaText(Infinity, widgetGlyphs) : quotaFull;
 
   // ─── Status bar ─────────────────────────────────────────────────────────
   const energyStatusbar = config.energy === "statusbar" && energyFull;
@@ -1617,8 +1708,8 @@ function updateEnergyStatus(ctx: any): void {
   const mcrStatusbar = config.mcr === "statusbar" && mcrFull;
 
   // Widget flags (also used by the standalone-region logic below).
-  const showEnergyWidget = (config.energy === "widget" || config.mcr === "widget") && (energyFull || (config.mcr === "widget" && sessionMcrFp));
-  const showQuotaWidget = config.quota === "widget" && quotaFull;
+  const showEnergyWidget = (config.energy === "widget" || config.mcr === "widget") && (energyWidget || (config.mcr === "widget" && sessionMcrFp));
+  const showQuotaWidget = config.quota === "widget" && quotaWidget;
 
   // Region badge: rides the quota line when quota renders. When the quota line
   // is off / not rendering but carbon is on and we have a grid, render the badge
@@ -1626,7 +1717,8 @@ function updateEnergyStatus(ctx: any): void {
   // carbon mode (widget → below-editor widget; statusbar → quota status key).
   const hasGridForBadge = config.carbon !== "off" && hasNeuralwattSession && sessionGridId != null;
   const regionCarriedByQuota = showQuotaWidget || quotaStatusbar;
-  const regionStandaloneText = hasGridForBadge && !regionCarriedByQuota ? buildRegionText(Infinity) : undefined;
+  const regionStandaloneText = hasGridForBadge && !regionCarriedByQuota ? buildRegionText(Infinity, glyphs) : undefined;
+  const regionStandaloneWidget = widgetClamped && hasGridForBadge && !regionCarriedByQuota ? buildRegionText(Infinity, widgetGlyphs) : regionStandaloneText;
   const regionStatusbar = config.carbon === "statusbar" && regionStandaloneText;
 
   if (energyStatusbar && quotaStatusbar) {
@@ -1660,33 +1752,33 @@ function updateEnergyStatus(ctx: any): void {
   // standalone region badge (buildRegionText).
   // When config.mcr is "widget", MCR data is embedded in the energy text
   // (left side) via buildEnergyText; when "statusbar" or "off", it's excluded.
-  if (showEnergyWidget || showQuotaWidget || (config.carbon === "widget" && regionStandaloneText)) {
-    const leftRaw = energyFull ?? "";
+  if (showEnergyWidget || showQuotaWidget || (config.carbon === "widget" && regionStandaloneWidget)) {
+    const leftRaw = energyWidget ?? "";
     // Right side: quota line if it renders; else the standalone region when
     // there's a left (energy) side to pair it with.
-    const rightRaw = showEnergyWidget && showQuotaWidget ? quotaFull!
-      : showEnergyWidget && regionStandaloneText ? regionStandaloneText
+    const rightRaw = showEnergyWidget && showQuotaWidget ? quotaWidget!
+      : showEnergyWidget && regionStandaloneWidget ? regionStandaloneWidget
       : undefined;
-    const leftOnlyRaw = !showEnergyWidget && showQuotaWidget ? quotaFull!
-      : !showEnergyWidget && regionStandaloneText ? regionStandaloneText
+    const leftOnlyRaw = !showEnergyWidget && showQuotaWidget ? quotaWidget!
+      : !showEnergyWidget && regionStandaloneWidget ? regionStandaloneWidget
       : undefined;
     // Re-compress with buildRegionText when the right side is region-only.
-    const rightIsRegionStandalone = !!rightRaw && rightRaw === regionStandaloneText;
-    const compressRight = rightIsRegionStandalone ? buildRegionText : undefined;
+    const rightIsRegionStandalone = !!rightRaw && rightRaw === regionStandaloneWidget;
+    const compressRight = rightIsRegionStandalone ? (budget: number) => buildRegionText(budget, widgetGlyphs) : undefined;
     if (leftOnlyRaw) {
       // Quota/region only (no energy left side yet): render the text on the
       // right side of the widget, not left — otherwise it visually "collapses"
       // to the left before the first flex/energy turn of a session.
-      const onlyRegion = !showQuotaWidget && !!regionStandaloneText;
+      const onlyRegion = !showQuotaWidget && !!regionStandaloneWidget;
       ctx.ui.setWidget(
         "neuralwatt",
-        (_ui: any, theme: any) => new StatusLineWidget(theme, "", leftOnlyRaw, onlyRegion ? buildRegionText : undefined),
+        (_ui: any, theme: any) => new StatusLineWidget(theme, "", leftOnlyRaw, onlyRegion ? (budget: number) => buildRegionText(budget, widgetGlyphs) : undefined, widgetGlyphs),
         { placement: "belowEditor" },
       );
     } else {
       ctx.ui.setWidget(
         "neuralwatt",
-        (_ui: any, theme: any) => new StatusLineWidget(theme, leftRaw, rightRaw, compressRight),
+        (_ui: any, theme: any) => new StatusLineWidget(theme, leftRaw, rightRaw, compressRight, widgetGlyphs),
         { placement: "belowEditor" },
       );
     }
@@ -1852,11 +1944,11 @@ export function formatLiveWait(seconds: number): string {
 }
 
 // Progressive-disclosure tiers for the live (in-flight) flex badge.
-export function flexLiveTiers(elapsedSeconds: number, previousDiscountPct?: number): string[] {
+export function flexLiveTiers(elapsedSeconds: number, previousDiscountPct?: number, glyphs: NwGlyphs = UNICODE_GLYPHS): string[] {
   const wait = formatLiveWait(elapsedSeconds);
   const waitTag = `flex queued ${wait}`;
   const full = previousDiscountPct !== undefined
-    ? `flex −${previousDiscountPct}% · queued ${wait}`
+    ? `flex ${glyphs.minus}${previousDiscountPct}% ${glyphs.middot} queued ${wait}`
     : waitTag;
   return full === waitTag ? [waitTag, ""] : [full, waitTag, ""];
 }
@@ -2754,6 +2846,13 @@ export default function (pi: ExtensionAPI) {
             values: ["widget", "statusbar", "off"],
           },
           {
+            id: "glyphs",
+            label: "Glyphs",
+            description: "Footer glyph set. 'auto' degrades to ASCII on legacy terminals (mintty/Cygwin), whose cell-width tables can wrap the full-width widget line",
+            currentValue: config.glyphs,
+            values: ["auto", "unicode", "ascii"],
+          },
+          {
             id: "hideOnOtherProvider",
             label: "Hide on other provider",
             description: "Hide all Neuralwatt display when a non-Neuralwatt model is active",
@@ -2779,6 +2878,12 @@ export default function (pi: ExtensionAPI) {
             } else if (id === "hideOnOtherProvider") {
               const raw = readRawNeuralwattConfig();
               raw.hideOnOtherProvider = newValue === "true";
+              writeRawNeuralwattConfig(raw);
+              config = loadConfig();
+              updateEnergyStatus(ctx);
+            } else if (id === "glyphs") {
+              const raw = readRawNeuralwattConfig();
+              raw.glyphs = newValue;
               writeRawNeuralwattConfig(raw);
               config = loadConfig();
               updateEnergyStatus(ctx);
