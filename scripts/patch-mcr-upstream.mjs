@@ -20,6 +20,17 @@ const replacements = [
     "event.messages as Array<{ type: string }>,",
     "event.messages as unknown as Array<{ type: string }>,",
   ],
+  // Pi loads extensions through jiti. A module that cannot run via
+  // vm.runInThisContext — bare `import.meta` or `import.meta?.x` — is handed
+  // to the runtime as a `data:text/javascript;base64,...` URL instead. Bun
+  // < 1.4 rejects any specifier longer than MAX_PATH_BYTES * 1.5 (6144 bytes
+  // on Linux) with NameTooLong before it looks at the data: scheme, so that
+  // module never loads on the standalone pi binaries (which pin bun 1.3.14).
+  // Plain `import.meta.url` is transformed by jiti and avoids the fallback.
+  [
+    'return typeof import.meta?.url === "string" ? import.meta.url : "unknown";',
+    'return typeof import.meta.url === "string" ? import.meta.url : "unknown";',
+  ],
 ];
 
 for (const [before, after] of replacements) {

@@ -233,7 +233,7 @@ function newActivationId(): string {
 // dual_instance_blocked log can tell the auto-loaded copy from the -e one.
 function moduleHint(): string {
   try {
-    return typeof import.meta?.url === "string" ? import.meta.url : "unknown";
+    return typeof import.meta.url === "string" ? import.meta.url : "unknown";
   } catch {
     return "unknown";
   }
