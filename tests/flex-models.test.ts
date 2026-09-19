@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach } from "vitest";
-import { readEnergyFromTee, resetSessionState, getPendingState } from "../index";
+import { FLEX_PRICING_MULTIPLIER, readEnergyFromTee, resetSessionState, getPendingState } from "../index";
 import modelsData from "../models.json" with { type: "json" };
 import customModelsData from "../custom-models.json" with { type: "json" };
 
@@ -21,13 +21,13 @@ type NeuralwattModel = {
   vision?: { maxImagesPerRequest?: number };
 };
 
-const flexModels = (customModelsData as NeuralwattModel[]).filter((m) =>
-  m.id.includes("-flex"),
-);
 const allModels = [
   ...(modelsData as NeuralwattModel[]),
   ...(customModelsData as NeuralwattModel[]),
 ];
+// Flex variants are API-synced entries (they used to live in
+// custom-models.json), so read them from the merged catalog.
+const flexModels = allModels.filter((m) => m.id.endsWith("-flex"));
 
 function str(s: string): Uint8Array {
   return new TextEncoder().encode(s);
@@ -62,19 +62,35 @@ describe("flex model definitions", () => {
   });
 });
 
-describe("flex model cost parity with non-flex counterparts", () => {
-  it("GLM-5.2 Flex has the same cost as GLM-5.2", () => {
-    const flex = allModels.find((m) => m.id === "glm-5.2-flex")!;
-    const base = allModels.find((m) => m.id === "glm-5.2")!;
-    expect(flex.cost).toEqual(base.cost);
+describe("flex model pricing against non-flex counterparts", () => {
+  // Derived from the catalog rather than pinned ids: the API sync delists and
+  // renames models (glm-5.2 → glm-5.3) and prices flex entries at the
+  // documented flex discount, so a pinned id or an equal-price expectation
+  // turns every sync into a red suite.
+  const pairs = flexModels
+    .map((flex) => ({ flex, base: allModels.find((m) => m.id === flex.id.replace(/-flex$/, "")) }))
+    .filter((pair): pair is { flex: NeuralwattModel; base: NeuralwattModel } => pair.base !== undefined);
+
+  it("at least one flex model has a non-flex counterpart to compare against", () => {
+    expect(pairs.length).toBeGreaterThan(0);
   });
 
-  it("GLM-5.2 Flex has the same contextWindow as GLM-5.2", () => {
-    const flex = allModels.find((m) => m.id === "glm-5.2-flex")!;
-    const base = allModels.find((m) => m.id === "glm-5.2")!;
-    expect(flex.contextWindow).toBe(base.contextWindow);
-  });
+  for (const { flex, base } of pairs) {
+    it(`${flex.id} mirrors ${base.id} contextWindow`, () => {
+      expect(flex.contextWindow).toBe(base.contextWindow);
+    });
 
+    it(`${flex.id} prices at the flex discount off ${base.id}`, () => {
+      // Rounding to 6 decimals keeps float noise (0.145 * 0.65) out of toEqual.
+      const discounted = (usd: number) => Math.round(usd * FLEX_PRICING_MULTIPLIER * 1e6) / 1e6;
+      expect(flex.cost).toEqual({
+        input: discounted(base.cost.input),
+        output: discounted(base.cost.output),
+        cacheRead: discounted(base.cost.cacheRead),
+        cacheWrite: discounted(base.cost.cacheWrite),
+      });
+    });
+  }
 });
 
 describe("flex model streaming with delta.reasoning", () => {
