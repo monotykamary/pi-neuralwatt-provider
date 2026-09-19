@@ -222,11 +222,13 @@ The file is auto-populated with defaults on first run.
 | `quota` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Quota display mode |
 | `mcr` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | MCR (context-reuse) display mode |
 | `carbon` | `"widget"`, `"statusbar"`, `"off"` | `"widget"` | Carbon (session CO₂ + fleet grid/region badge) display mode |
-| `hideOnOtherProvider` | `true`, `false` | `false` | Hide all Neuralwatt display when a non-Neuralwatt model is active |
+| `hideOnOtherProvider` | `true`, `false` | `true` | Hide all Neuralwatt display when a non-Neuralwatt model is active |
 | `baseUrl` | Any `http(s)` URL | `https://api.neuralwatt.com/v1` | Override the API URL for all requests (chat, `/models`, `/quota`). For use with a proxy such as Headroom |
 | `api` | `"chat-completions"`, `"responses"` | `"chat-completions"` | Generation API surface. `"responses"` opts into the staged `/v1/responses` rollout — see below |
 | `storeResponses` | `true`, `false` | `true` | Responses-surface retention. Only read when `api` is `"responses"` — see below |
 | `glyphs` | `"auto"`, `"unicode"`, `"ascii"` | `"auto"` | Footer glyph set; `"auto"` degrades to ASCII on legacy terminals (mintty/Cygwin) — see below |
+
+The display appears as soon as a Neuralwatt model is selected: the quota line renders when the session-start prefetch lands, the energy line joins it once a turn records data, and `hideOnOtherProvider` (default `true`) clears everything the moment the active model belongs to another provider.
 
 **Display modes:**
 
@@ -285,7 +287,7 @@ What changes on `responses`:
   "quota": "widget",
   "mcr": "widget",
   "carbon": "widget",
-  "hideOnOtherProvider": false,
+  "hideOnOtherProvider": true,
   "modelOverrides": {
     // Disable full-history reasoning for kimi-k2.6 (e.g. to save tokens):
     "kimi-k2.6":      { "compat": { "chatTemplateKwargs": { "preserve_thinking": false } } },

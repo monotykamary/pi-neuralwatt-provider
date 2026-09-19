@@ -41,16 +41,19 @@
  *     "quota": "widget",          // "widget" | "statusbar" | "off"
  *     "mcr": "widget",            // "widget" | "statusbar" | "off"
  *     "carbon": "widget",         // "widget" | "statusbar" | "off"
- *     "hideOnOtherProvider": false,  // hide display when a non-Neuralwatt model is active
+ *     "hideOnOtherProvider": true,   // hide display when a non-Neuralwatt model is active
  *     "baseUrl": "https://api.neuralwatt.com/v1"  // optional: route all API traffic through a proxy
  *   }
  *
  *   - "widget" (default): rendered in the below-editor status line
  *   - "statusbar": rendered in the built-in pi status bar
  *   - "off": hidden entirely (for quota, also skips the API fetch)
- *   - hideOnOtherProvider: when true, auto-hide all Neuralwatt display if the
- *     active model's provider is not "neuralwatt". The display returns when you
- *     switch back to a Neuralwatt model. Default: false.
+ *   - hideOnOtherProvider: when true (default), auto-hide all Neuralwatt
+ *     display if the active model's provider is not "neuralwatt". The display
+ *     returns when you switch back to a Neuralwatt model. The line itself
+ *     appears as soon as a Neuralwatt model is selected — the quota side
+ *     renders with the prefetch, the energy side joins it once a turn records
+ *     data — instead of waiting for that first turn.
  *   - baseUrl: override the provider API URL. Every request (chat completions,
  *     /models sync, /quota) goes to this URL instead of the default. Useful
  *     with a proxy such as Headroom. Default: https://api.neuralwatt.com/v1
@@ -220,7 +223,7 @@ function parseBaseUrl(value: unknown): string | undefined {
   return /^https?:\/\/.+/.test(url) ? url : undefined;
 }
 
-const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: false, api: "chat-completions", glyphs: "auto" };
+const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: true, api: "chat-completions", glyphs: "auto" };
 
 function loadConfig(): NeuralwattConfig {
   try {
@@ -230,7 +233,7 @@ function loadConfig(): NeuralwattConfig {
       quota: parseDisplayMode(raw.quota, "widget"),
       mcr: parseDisplayMode(raw.mcr, "widget"),
       carbon: parseDisplayMode(raw.carbon, "widget"),
-      hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : false,
+      hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : true,
       baseUrl: parseBaseUrl(raw.baseUrl),
       modelOverrides: parseModelOverrides(raw.modelOverrides),
       api: raw.api === "responses" ? "responses" : "chat-completions",
@@ -1649,19 +1652,29 @@ function stopLiveFlexStream(): void {
   refreshLiveFlexBadge();
 }
 
+/**
+ * Footer visibility. A Neuralwatt model being active is enough to show the
+ * line — the quota side renders as soon as the prefetch lands, ahead of the
+ * first turn — and recorded session data keeps it alive after a switch.
+ * hideOnOtherProvider (on by default) suppresses everything the moment
+ * another provider's model is active.
+ */
+export function shouldShowNeuralwattFooter(input: {
+  hasSessionData: boolean;
+  activeProvider: string | undefined;
+  hideOnOtherProvider: boolean;
+}): boolean {
+  if (input.hideOnOtherProvider && input.activeProvider !== undefined && input.activeProvider !== PROVIDER_ID) {
+    return false;
+  }
+  return input.hasSessionData || input.activeProvider === PROVIDER_ID;
+}
+
 function updateEnergyStatus(ctx: any): void {
   // Stash for the live flex ticker's ~1s re-renders.
   lastFooterCtx = ctx;
-  // Show the status line only after neuralwatt activity is recorded in this
-  // session. This avoids showing quota/energy data in sessions that use a
-  // different provider, and prevents the quota from appearing before any
-  // turn has completed (quota is pre-fetched eagerly so it's ready to display
-  // as soon as the first turn ends, alongside the energy data).
   const hasNeuralwattSession = sessionEnergyJoules > 0 || sessionCostUsd > 0 || sessionMcrFp !== null || sessionCarbonGrams > 0 || sessionGridId !== null || liveFlexStartedAt !== null;
 
-  // When hideOnOtherProvider is enabled, suppress display if the active
-  // model is from a different provider. This prevents stale energy/quota
-  // info from persisting after the user switches to a non-Neuralwatt model.
   // Use a try/catch because ctx.model is a getter that throws on stale contexts.
   let currentProvider: string | undefined;
   try {
@@ -1669,10 +1682,16 @@ function updateEnergyStatus(ctx: any): void {
   } catch {
     currentProvider = undefined;
   }
-  const hiddenByOtherProvider = config.hideOnOtherProvider && currentProvider !== undefined && currentProvider !== PROVIDER_ID;
 
-  // When hideOnOtherProvider suppresses display, clear everything.
-  if (hiddenByOtherProvider) {
+  // Show on selection (quota prefetched, so the first paint needs no turn) or
+  // on recorded session data; hideOnOtherProvider clears it on any other
+  // provider, and "nothing to show yet" clears the same way.
+  const visible = shouldShowNeuralwattFooter({
+    hasSessionData: hasNeuralwattSession,
+    activeProvider: currentProvider,
+    hideOnOtherProvider: config.hideOnOtherProvider,
+  });
+  if (!visible) {
     ctx.ui.setStatus(STATUS_KEY_ENERGY, undefined);
     ctx.ui.setStatus(STATUS_KEY_QUOTA, undefined);
     ctx.ui.setStatus(STATUS_KEY_MCR, undefined);
@@ -1694,13 +1713,13 @@ function updateEnergyStatus(ctx: any): void {
   // Statusbar uses full-fidelity text (no width constraint)
   // MCR is embedded in the energy text when config.mcr is "widget";
   // for statusbar mode, MCR gets its own status key.
-  const energyFull = hasNeuralwattSession ? buildEnergyText(Infinity, glyphs) : undefined;
-  const energyWidget = widgetClamped && hasNeuralwattSession ? buildEnergyText(Infinity, widgetGlyphs) : energyFull;
-  const mcrFull = hasNeuralwattSession && config.mcr === "statusbar" && sessionMcrFp
+  const energyFull = visible ? buildEnergyText(Infinity, glyphs) : undefined;
+  const energyWidget = widgetClamped && visible ? buildEnergyText(Infinity, widgetGlyphs) : energyFull;
+  const mcrFull = visible && config.mcr === "statusbar" && sessionMcrFp
     ? [`MCR ${sessionMcrFp.slice(0, 8)}`, sessionSafeDropBefore > 0 ? `drop<${sessionSafeDropBefore}` : undefined, sessionApcHitRate !== undefined ? `APC ${(sessionApcHitRate * 100).toFixed(0)}%` : undefined, sessionCompactRatio !== undefined ? `compact ${(sessionCompactRatio * 100).toFixed(0)}%` : undefined].filter(Boolean).join(" ")
     : undefined;
-  const quotaFull = hasNeuralwattSession ? buildQuotaText(Infinity, glyphs) : undefined;
-  const quotaWidget = widgetClamped && hasNeuralwattSession ? buildQuotaText(Infinity, widgetGlyphs) : quotaFull;
+  const quotaFull = visible ? buildQuotaText(Infinity, glyphs) : undefined;
+  const quotaWidget = widgetClamped && visible ? buildQuotaText(Infinity, widgetGlyphs) : quotaFull;
 
   // ─── Status bar ─────────────────────────────────────────────────────────
   const energyStatusbar = config.energy === "statusbar" && energyFull;
@@ -1715,7 +1734,7 @@ function updateEnergyStatus(ctx: any): void {
   // is off / not rendering but carbon is on and we have a grid, render the badge
   // standalone so "where is the fleet" still shows. Placement then follows the
   // carbon mode (widget → below-editor widget; statusbar → quota status key).
-  const hasGridForBadge = config.carbon !== "off" && hasNeuralwattSession && sessionGridId != null;
+  const hasGridForBadge = config.carbon !== "off" && visible && sessionGridId != null;
   const regionCarriedByQuota = showQuotaWidget || quotaStatusbar;
   const regionStandaloneText = hasGridForBadge && !regionCarriedByQuota ? buildRegionText(Infinity, glyphs) : undefined;
   const regionStandaloneWidget = widgetClamped && hasGridForBadge && !regionCarriedByQuota ? buildRegionText(Infinity, widgetGlyphs) : regionStandaloneText;
@@ -2449,9 +2468,9 @@ export default function (pi: ExtensionAPI) {
     // active model carries a preserve flag (model_select may not fire on startup).
     notifyPreservedThinkingFor(ctx.model, ctx);
     resolveApiKey(ctx.modelRegistry).then(() => {
-      // Pre-fetch quota eagerly so it's cached and ready to display as
-      // soon as the first turn completes (updateEnergyStatus gates display
-      // on hasNeuralwattSession, so nothing is shown before then).
+      // Pre-fetch quota eagerly: with a Neuralwatt model selected the line
+      // renders it as soon as it lands (visibility no longer waits for the
+      // first turn), and on another provider it stays cached for a switch.
       if (config.quota !== "off") {
         // .catch: the session may be disposed (runner invalidated without a
         // session_shutdown event) before this lands, making ctx stale — swallow
@@ -2910,9 +2929,10 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  // Re-evaluate display when the active model changes (for hideOnOtherProvider),
-  // and notify preserved-thinking state for models carrying a preserve flag
-  // (e.g. GLM-5.2 family, Kimi K2.6/K2.7).
+  // Re-evaluate display when the active model changes: selecting a Neuralwatt
+  // model shows the line (quota with the prefetch), and hideOnOtherProvider
+  // clears it on any other provider. Also notify preserved-thinking state for
+  // models carrying a preserve flag (e.g. GLM-5.2 family, Kimi K2.6/K2.7).
   pi.on("model_select", async (event, ctx) => {
     updateEnergyStatus(ctx);
     notifyPreservedThinkingFor(event.model ?? ctx.model, ctx);
