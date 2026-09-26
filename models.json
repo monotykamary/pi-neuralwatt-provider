@@ -646,7 +646,7 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 4
+      "maxImagesPerRequest": 20
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -679,7 +679,7 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 4
+      "maxImagesPerRequest": 20
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -712,7 +712,7 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 4
+      "maxImagesPerRequest": 20
     }
   }
 ]
