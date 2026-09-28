@@ -35,7 +35,6 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | DeepSeek V4 Flash (0731 Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | DeepSeek V4 Flash (flex) | 1.0M | ❌ | ✅ | $0.09 | $0.02 | $0.18 |
 | DeepSeek V4 Flash (Speed) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
-| DeepSeek V4-Pro | 1.0M | ❌ | ✅ | $1.00 | $0.10 | $3.00 |
 | DeepSeek V4.1 Flash | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
 | DeepSeek V4.1 Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.01 | $0.39 |
 | DeepSeek V4.1 Flash (Speed) | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
@@ -62,6 +61,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | GLM-5.2 (short, fast) | 200K | ❌ | ✅ | $1.45 | $0.14 | $4.50 |
 | GLM-5.2 (short, flex) | 200K | ❌ | ✅ | $0.94 | $0.09 | $2.92 |
 | GLM-5.2 (short) | 200K | ❌ | ✅ | $1.45 | $0.14 | $4.50 |
+| DeepSeek V4-Pro | 1.0M | ❌ | ✅ | $1.00 | $0.10 | $3.00 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | — | $2.59 |
