@@ -1,6 +1,6 @@
 {
   "name": "pi-neuralwatt-provider",
-  "version": "1.18.27",
+  "version": "1.18.28",
   "description": "Neuralwatt provider extension for pi - Access Kimi, GLM, Qwen, GPT-OSS, Devstral, and MiniMax models through the Neuralwatt API",
   "type": "module",
   "main": "index.ts",
@@ -15,7 +15,8 @@
     "probe:image-limit-stream": "node scripts/test-image-limit-stream.mjs",
     "probe:vision-models": "node scripts/probe-vision-models.mjs",
     "update-models": "node scripts/update-models.js",
-    "sync-mcr": "curl -sL https://raw.githubusercontent.com/neuralwatt/neuralwatt-tools/refs/heads/main/plugins/pi/extensions/neuralwatt-mcr.ts -o chad-mcr-upstream.ts && node scripts/patch-mcr-upstream.mjs"
+    "sync-mcr": "curl -sL https://raw.githubusercontent.com/neuralwatt/neuralwatt-tools/refs/heads/main/plugins/pi/extensions/neuralwatt-mcr.ts -o chad-mcr-upstream.ts && node scripts/patch-mcr-upstream.mjs",
+    "test:pi": "node scripts/test-pi-compat.mjs"
   },
   "keywords": [
     "pi",
@@ -35,11 +36,11 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.87.0",
-    "@earendil-works/pi-coding-agent": "0.87.0",
-    "@earendil-works/pi-tui": "0.87.0",
+    "@earendil-works/pi-ai": "0.99.0",
+    "@earendil-works/pi-coding-agent": "0.99.0",
+    "@earendil-works/pi-tui": "0.99.0",
     "knip": "6.14.1",
-    "typebox": "^1.1.38",
+    "typebox": "1.3.27",
     "typescript": "6.0.3",
     "vitest": "4.1.7"
   },
@@ -48,5 +49,11 @@
       "./index.ts",
       "./neuralwatt-mcr.ts"
     ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
   }
 }

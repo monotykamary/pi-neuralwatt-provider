@@ -272,7 +272,17 @@ describe("GLM-5.3 patch.json thinkingLevelMap", () => {
 });
 
 describe("Qwen 3.8 effective thinkingLevelMap", () => {
-  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any);
+  // This model has left the live catalog. Keep the verified gateway contract
+  // as a deterministic fixture so catalog synchronization cannot erase coverage.
+  const base = { ...glm52, id: "Qwen/Qwen3.8-27B-FP8", name: "Qwen 3.8", thinkingLevelMap: undefined };
+  const patch = {
+    [base.id]: {
+      reasoning: true,
+      thinkingLevelMap: { off: "none", minimal: null, low: "low", medium: "medium", high: null, xhigh: "xhigh", max: null },
+      compat: { supportsThinkingTokenBudget: true },
+    },
+  };
+  const catalog = buildModels([base] as any, [], patch, {}, {});
   const expectedMap = {
     off: "none",
     minimal: null,
@@ -306,11 +316,11 @@ describe("Qwen 3.8 effective thinkingLevelMap", () => {
     expect(map?.max).toBeNull();
   });
 
-  it("patch.json carries the map (live metadata publishes reasoning: null for this model)", () => {
-    // The live /v1/models entry publishes metadata.reasoning: null, so the SWR
-    // transform can never derive this map — patch.json is the only layer that
-    // survives a models.json regen and every live refresh.
-    expect((patchesData as Record<string, any>)["Qwen/Qwen3.8-27B-FP8"]?.thinkingLevelMap).toEqual(expectedMap);
+  it("retains curated effort tiers when refreshed live metadata has no reasoning map", () => {
+    const refreshed = { ...base, thinkingLevelMap: deriveThinkingLevelMap(null) };
+    const output = buildModels([refreshed] as any, [], patch, {}, {});
+    expect(output[0].thinkingLevelMap).toEqual(expectedMap);
+    expect(refreshed.thinkingLevelMap).toBeUndefined();
   });
 
   it("opts into thinking_token_budget so reasoning can't consume the whole response", () => {
