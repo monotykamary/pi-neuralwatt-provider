@@ -531,6 +531,39 @@
     }
   },
   {
+    "id": "mimo-v2.6-pro",
+    "name": "MiMo-V2.6-Pro",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.87,
+      "output": 1.74,
+      "cacheRead": 0.036,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerRequest": 20
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": null
+    }
+  },
+  {
     "id": "qwen-3.8-27b",
     "name": "Qwen 3.8 27B",
     "reasoning": true,

@@ -49,6 +49,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 | Kimi K3 | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |
 | Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |
+| MiMo-V2.6-Pro | 1.0M | ✅ | ✅ | $0.87 | $0.04 | $1.74 |
 | Qwen 3.8 27B | 262K | ✅ | ✅ | $0.45 | $0.25 | $3.20 |
 | Qwen 3.8 27B (flex) | 262K | ✅ | ✅ | $0.29 | $0.16 | $2.08 |
 | Qwen3.6 35B | 262K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
