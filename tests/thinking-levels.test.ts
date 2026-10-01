@@ -4,6 +4,7 @@ import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/p
 import patchesData from "../patch.json" with { type: "json" };
 import modelsData from "../models.json" with { type: "json" };
 import customModelsData from "../custom-models.json" with { type: "json" };
+import deprecatedModelsData from "../deprecated-models.json" with { type: "json" };
 
 // A GLM-5.2 model shaped exactly as the extension registers it (embedded
 // models.json base — thinkingLevelMap derived from metadata.reasoning).
@@ -167,7 +168,11 @@ describe("streamNeuralwatt thinking-level forwarding", () => {
 // catalog (base + patch) so a sync regression can't silently change what's
 // registered.
 describe("GLM-5.2 family effective thinkingLevelMap", () => {
-  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any);
+  // GLM-5.2 has moved to the graveyard. Keep testing its real catalog metadata
+  // through the grace-period pipeline without expiring this regression by date.
+  const deprecated = Object.fromEntries(Object.entries(deprecatedModelsData).map(([id, model]) =>
+    [id, { ...model, deprecatedAt: new Date().toISOString() }]));
+  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any, {}, deprecated as any);
   const expectedMap = {
     off: "none",
     minimal: null,
