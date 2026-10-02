@@ -59,52 +59,6 @@
       "maxTokensField": "max_tokens"
     }
   },
-  "glm-5.2": {
-    "maxTokens": 131072,
-    "compat": {
-      "chatTemplateKwargs": {
-        "clear_thinking": false
-      }
-    }
-  },
-  "glm-5.2-fast": {
-    "maxTokens": 131072,
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
-  "glm-5.2-flex": {
-    "maxTokens": 131072,
-    "compat": {
-      "chatTemplateKwargs": {
-        "clear_thinking": false
-      }
-    }
-  },
-  "glm-5.2-short": {
-    "compat": {
-      "chatTemplateKwargs": {
-        "clear_thinking": false
-      }
-    }
-  },
-  "glm-5.2-short-flex": {
-    "compat": {
-      "chatTemplateKwargs": {
-        "clear_thinking": false
-      }
-    }
-  },
-  "glm-5.2-short-fast": {
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
-  "glm-5.2-short-fast-flex": {
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
   "glm-5.3": {
     "thinkingLevelMap": {
       "off": "none",

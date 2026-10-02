@@ -55,18 +55,17 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |
 | MiMo-V2.6-Pro | 1.0M | ✅ | ✅ | $0.87 | $0.04 | $1.74 |
+| Neuralwatt Flash | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
+| Neuralwatt Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.01 | $0.39 |
+| Neuralwatt Large | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |
+| Neuralwatt Large (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
+| Neuralwatt Small | 262K | ✅ | ✅ | $0.45 | $0.25 | $3.20 |
+| Neuralwatt Small (flex) | 262K | ✅ | ✅ | $0.29 | $0.16 | $2.08 |
 | Qwen 3.8 27B | 262K | ✅ | ✅ | $0.45 | $0.25 | $3.20 |
 | Qwen 3.8 27B (flex) | 262K | ✅ | ✅ | $0.29 | $0.16 | $2.08 |
 | Qwen3.6 35B | 262K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
 | Qwen3.6 35B (flex) | 262K | ✅ | ✅ | $0.19 | $0.02 | $0.75 |
 | Qwen3.6 35B Fast | 262K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
-| GLM-5.2 | 1.0M | ❌ | ✅ | $1.45 | $0.14 | $4.50 |
-| GLM-5.2 (fast) | 1.0M | ❌ | ✅ | $1.45 | $0.14 | $4.50 |
-| GLM-5.2 (flex) | 1.0M | ❌ | ✅ | $0.94 | $0.09 | $2.92 |
-| GLM-5.2 (short, fast, flex) | 200K | ❌ | ✅ | $0.94 | $0.09 | $2.92 |
-| GLM-5.2 (short, fast) | 200K | ❌ | ✅ | $1.45 | $0.14 | $4.50 |
-| GLM-5.2 (short, flex) | 200K | ❌ | ✅ | $0.94 | $0.09 | $2.92 |
-| GLM-5.2 (short) | 200K | ❌ | ✅ | $1.45 | $0.14 | $4.50 |
 | DeepSeek V4-Pro | 1.0M | ❌ | ✅ | $1.00 | $0.10 | $3.00 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
