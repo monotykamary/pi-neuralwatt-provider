@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.19.0
 
 - Discover Clef and future decision models as native pi classifiers; reuse System One auth, typed answers, usage, hooks, errors and cancellation instead of chat APIs.
 - Preserve classifier registration through model sync, caches and MCR re-registration; regenerate the authenticated catalog.
