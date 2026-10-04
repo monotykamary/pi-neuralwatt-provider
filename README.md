@@ -13,7 +13,7 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 
 ## Pi 1.0 compatibility
 
-Tested with Pi **1.0.0**. Host-provided packages remain wildcard peers; development uses exact SDK pins.
+Tested with Pi **1.0.0** and the **1.0.2 bundled host**. Host-provided packages remain wildcard peers; development uses exact SDK pins.
 Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming checks. To test an installed host, set `PI1_HOST_PACKAGE` to its package directory; add `PI1_HOST_ENTRY=bundle` for its bundled CLI runtime. The probe stubs all network requests and never uses a live provider endpoint.
 
 ---
@@ -25,7 +25,9 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 - **OpenAI-compatible API** - Uses Neuralwatt's `/v1/chat/completions` endpoint
 - **Reasoning models** - Support for thinking models with `reasoning_effort` parameter
 - **Vision models** - Image input support on Kimi K2.5, K2.6, and Devstral
-- **Tool use** - Function calling support
+- **Tool use** - Function calling support, plus opt-in Neuralwatt hosted tools with per-request budgets
+- **Classifiers** - Clef Flash via pi core’s classifier registry, separate from chat models
+- **Image history** - Separate per-turn and whole-conversation limits; no premature 20-image history eviction
 - **Streaming** - Real-time token streaming
 - **Fast variants** - Optimized "Fast" versions of popular models for quicker responses
 - **Energy reporting** - Displays energy consumption (⚡J/mWh/Wh/kWh) and actual billed cost ($) in a dedicated status widget below the editor, tracked per-session
@@ -36,6 +38,7 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 
 | Model | Context | Vision | Reasoning | Input $/M | Cache Read $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|-----------------|------------|
+| Clef Flash (classifier; preview access) | 262K | ✅ | ❌ | $0.18 | $0.02 | — |
 | DeepSeek V4 Flash | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | DeepSeek V4 Flash (0731 Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | DeepSeek V4 Flash (flex) | 1.0M | ❌ | ✅ | $0.09 | $0.02 | $0.18 |
@@ -70,6 +73,17 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | — | $2.59 |
+
+## Classifiers and newer API capabilities
+
+Clef Flash is available through **pi core's classifier registry**, not `/model`:
+
+```js
+const clef = await models.getModelOfType("classifier", "neuralwatt", "clef-flash");
+// In pi codemode: models.classify(clef, { state, questions })
+```
+
+Preview access is required. [Capability guide](docs/capabilities.md) covers classifier examples, hosted-tool opt-ins and budgets, sampling/JSON output, image limits, speed/flex lanes, limitations, and live probes. No hosted tool is opted into automatically.
 
 ## Authentication
 
@@ -271,7 +285,7 @@ What changes on `responses`:
 - **Reasoning still works.** Thinking levels map onto the Responses `reasoning.effort` parameter. The `reasoning.encrypted_content` include pi-ai adds is stripped (Neuralwatt lists it as unsupported).
 - **Token usage and billing are unchanged** — Responses downgrades to the chat pipeline internally, so usage, rate limits, and prefix caching match chat completions.
 
-> **Caveat (staged rollout):** as of now Neuralwatt does **not** emit the `: energy` / `: cost` / `: mcr-session` SSE comments on `/v1/responses`. On this surface the energy, carbon, cost, and flex reporting (and the quota fetch they trigger) go dark, and flex queue telemetry is unavailable — only token usage is captured. Keep `chat-completions` (the default) if you rely on the energy widget. Requires an enrolled account; un-enrolled accounts get a `404`.
+> **Telemetry caveat:** flex works on `/v1/responses` (verified live), but current streams still lack the `: energy` / `: cost` / `: mcr-session` SSE comments. Energy/carbon/billed-cost reporting and flex queue telemetry are unavailable for these requests; token usage and the independently fetched quota remain available. Keep `chat-completions` (the default) if you rely on the energy widget.
 
 **Example — custom quota footer:** If you use your own unified quota footer extension, disable the built-in quota display to avoid duplication:
 
@@ -309,7 +323,7 @@ What changes on `responses`:
 }
 ```
 
-The full set of overridable fields matches the model schema (`compat`, `thinkingLevelMap`, `vision`, `cost`, `contextWindow`, `maxTokens`, `reasoning`, `input`). See [Compat Settings](#compat-settings) for the catalog of compat flags and what `chatTemplateKwargs` values mean per family.
+Supported config override fields are `compat`, `thinkingLevelMap`, `vision`, and `samplingParams`. Use `patch.json` for other catalog overrides. `vision.maxImagesPerTurn` limits the current user turn; `vision.maxImagesPerRequest` remains the whole-conversation ceiling. Sampling defaults are merged per key; request-level sampling parameters win. See [Compat Settings](#compat-settings) for the catalog of compat flags and what `chatTemplateKwargs` values mean per family.
 
 ### Settings UI
 

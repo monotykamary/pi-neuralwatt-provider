@@ -21,7 +21,7 @@ import { describe, expect, it } from "vitest";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 
 // Every module the extension loader pulls in for this package.
-const LOADED_SOURCES = ["index.ts", "neuralwatt-mcr.ts", "chad-mcr-upstream.ts", "transform.ts"];
+const LOADED_SOURCES = ["index.ts", "neuralwatt-mcr.ts", "chad-mcr-upstream.ts", "transform.ts", "hosted-tools.ts"];
 
 describe("extension loader compatibility", () => {
   it.each(LOADED_SOURCES)("%s avoids the jiti data: URL fallback", (file) => {

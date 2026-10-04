@@ -4,7 +4,14 @@ import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/p
 import patchesData from "../patch.json" with { type: "json" };
 import modelsData from "../models.json" with { type: "json" };
 import customModelsData from "../custom-models.json" with { type: "json" };
-import deprecatedModelsData from "../deprecated-models.json" with { type: "json" };
+// Historical provider metadata is a fixture, not today's expiring graveyard.
+const retiredGlm52 = Object.fromEntries(["glm-5.2", "glm-5.2-flex", "glm-5.2-short", "glm-5.2-short-flex"].map(id => [id, {
+  id, name: id, reasoning: true, input: ["text"],
+  cost: { input: 1.1, output: 3.6, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 1048576, maxTokens: 131072,
+  thinkingLevelMap: deriveThinkingLevelMap({ mandatory: false, default_enabled: true, supported_efforts: ["max", "high", "none"], accepted_efforts: ["max", "xhigh", "high", "medium", "low", "minimal", "none"] }),
+  deprecatedAt: new Date().toISOString(),
+}]));
 
 // A GLM-5.2 model shaped exactly as the extension registers it (embedded
 // models.json base — thinkingLevelMap derived from metadata.reasoning).
@@ -168,11 +175,8 @@ describe("streamNeuralwatt thinking-level forwarding", () => {
 // catalog (base + patch) so a sync regression can't silently change what's
 // registered.
 describe("GLM-5.2 family effective thinkingLevelMap", () => {
-  // GLM-5.2 has moved to the graveyard. Keep testing its real catalog metadata
-  // through the grace-period pipeline without expiring this regression by date.
-  const deprecated = Object.fromEntries(Object.entries(deprecatedModelsData).map(([id, model]) =>
-    [id, { ...model, deprecatedAt: new Date().toISOString() }]));
-  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any, {}, deprecated as any);
+  // Keep exercising grace-period registration after the live graveyard evicts it.
+  const catalog = buildModels(modelsData as any, customModelsData as any, patchesData as any, {}, retiredGlm52 as any);
   const expectedMap = {
     off: "none",
     minimal: null,
@@ -477,14 +481,11 @@ describe("patch.json chatTemplateKwargs enablement (behavioral E2E-verified)", (
     });
   }
 
-  // GLM-5.2 reasoning variants: clear_thinking: false
-  // (NOT in the docs' full-history table, which lists clear_thinking only for
-  // GLM-5.1; but behavioral E2E proved it functional on GLM-5.2: 1/4 → 4/4 recall,
-  // confirmed family-wide on base/short). Non-reasoning -fast variants excluded.
-  const glm = ["glm-5.2", "glm-5.2-flex", "glm-5.2-short", "glm-5.2-short-flex"];
+  // Current GLM models preserve full history; retired IDs need no patch after TTL.
+  const glm = ["glm-5.3", "glm-5.3-flex"];
   for (const id of glm) {
-    it(`${id} opts into full-history via clear_thinking: false`, () => {
-      expect(patches[id]?.compat?.chatTemplateKwargs).toEqual({ clear_thinking: false });
+    it(`${id} keeps the provider's default full-history preservation`, () => {
+      expect(patches[id]?.compat?.chatTemplateKwargs?.clear_thinking).not.toBe(true);
     });
   }
 

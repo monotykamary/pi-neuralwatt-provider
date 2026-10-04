@@ -82,15 +82,23 @@
 import { fileURLToPath } from "node:url";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
+import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import { applyHostedTools, parseHostedTools, type HostedToolsConfig } from "./hosted-tools";
 import { clampThinkingLevel, streamOpenAICompletions, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
 import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchesData from "./patch.json" with { type: "json" };
 import deprecatedData from "./deprecated-models.json" with { type: "json" };
-import { transformContextForImageLimit } from "./transform";
+import { transformContextForImageLimits } from "./transform";
 import fs from "fs";
 import path from "path";
+
+// Use a host-whitelisted entrypoint: pi's jiti aliases do not resolve arbitrary
+// pi-ai/api subpaths. The built-in provider dispatches the same System One wire
+// adapter with our model, endpoint, credentials and request hooks unchanged.
+const classifySystemOne = builtinProviders().find(provider => provider.id === "typesafe")!.classify!;
 
 // ─── Display Configuration ────────────────────────────────────────────────────
 
@@ -132,6 +140,8 @@ export interface NeuralwattConfig {
   //   false — send store:false: retain nothing (reasoning continuity is lost
   //     between turns). The escape hatch for zero-retention requirements.
   storeResponses?: boolean;
+  // Omitted: dashboard defaults. false: opt out. Object: per-request opt-in.
+  hostedTools?: HostedToolsConfig;
   // Footer glyph set. "auto" degrades to ASCII on legacy terminals
   // (mintty/Cygwin), whose cell-width tables disagree with the width math
   // and can wrap the full-width widget line. "unicode"/"ascii" force a set.
@@ -141,7 +151,8 @@ export interface NeuralwattConfig {
 interface ModelOverride {
   thinkingLevelMap?: Record<string, string | null>;
   compat?: Record<string, any>;
-  vision?: { maxImagesPerRequest?: number; evictionHysteresis?: number };
+  vision?: { maxImagesPerRequest?: number; maxImagesPerTurn?: number; evictionHysteresis?: number };
+  samplingParams?: Record<string, unknown>;
 }
 
 const CONFIG_PATH = path.join(getAgentDir(), "extensions", "neuralwatt.json");
@@ -236,6 +247,7 @@ function loadConfig(): NeuralwattConfig {
       hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : true,
       baseUrl: parseBaseUrl(raw.baseUrl),
       modelOverrides: parseModelOverrides(raw.modelOverrides),
+      hostedTools: parseHostedTools(raw.hostedTools),
       api: raw.api === "responses" ? "responses" : "chat-completions",
       storeResponses: typeof raw.storeResponses === "boolean" ? raw.storeResponses : true,
       glyphs: parseGlyphMode(raw.glyphs, "auto"),
@@ -268,8 +280,11 @@ function parseModelOverrides(raw: unknown): Record<string, ModelOverride> | unde
       }
       if (Object.keys(m).length > 0) parsed.thinkingLevelMap = m;
     }
+    if (o.samplingParams && typeof o.samplingParams === "object" && !Array.isArray(o.samplingParams)) {
+      parsed.samplingParams = o.samplingParams as Record<string, unknown>;
+    }
     if (o.compat && typeof o.compat === "object") parsed.compat = o.compat as Record<string, any>;
-    if (o.vision && typeof o.vision === "object") parsed.vision = o.vision as { maxImagesPerRequest?: number; evictionHysteresis?: number };
+    if (o.vision && typeof o.vision === "object") parsed.vision = o.vision as ModelOverride["vision"];
     if (Object.keys(parsed).length > 0) result[id] = parsed;
   }
   return Object.keys(result).length > 0 ? result : undefined;
@@ -307,9 +322,13 @@ function writeRawNeuralwattConfig(raw: Record<string, any>): void {
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface NeuralwattModel {
+  type?: "chat" | "classifier";
+  api?: string;
   id: string;
   name: string;
-  reasoning: boolean;
+  reasoning?: boolean;
+  hostedTools?: boolean;
+  samplingParams?: Record<string, unknown>;
   input: ("text" | "image")[];
   cost: {
     input: number;
@@ -318,7 +337,7 @@ interface NeuralwattModel {
     cacheWrite: number;
   };
   contextWindow: number;
-  maxTokens: number;
+  maxTokens?: number;
   thinkingLevelMap?: {
     off?: string | null;
     minimal?: string | null;
@@ -349,7 +368,9 @@ interface NeuralwattModel {
     chatTemplateKwargs?: Record<string, string | number | boolean | null>;
   };
   vision?: {
+    /** Whole-conversation ceiling (legacy override name retained). */
     maxImagesPerRequest?: number;
+    maxImagesPerTurn?: number;
     /** Eviction batch size for the image-limit transform; see transform.ts. */
     evictionHysteresis?: number;
   };
@@ -359,7 +380,7 @@ interface NeuralwattModel {
 
 function applyPatch(model: NeuralwattModel, patch: Record<string, any>): NeuralwattModel {
   const result = { ...model };
-  const NESTED_KEYS = new Set(["compat", "vision", "cost"]);
+  const NESTED_KEYS = new Set(["compat", "vision", "cost", "samplingParams"]);
   for (const [key, value] of Object.entries(patch)) {
     if (NESTED_KEYS.has(key) && typeof value === "object" && value !== null && typeof (result as any)[key] === "object") {
       (result as any)[key] = { ...(result as any)[key], ...value };
@@ -386,7 +407,7 @@ function applyPatch(model: NeuralwattModel, patch: Record<string, any>): Neuralw
 // (unlike applyPatch) — the user's override is authoritative.
 function applyModelOverride(model: NeuralwattModel, override: ModelOverride): NeuralwattModel {
   const result = { ...model };
-  const NESTED_KEYS = new Set(["compat", "vision", "cost", "thinkingLevelMap"]);
+  const NESTED_KEYS = new Set(["compat", "vision", "cost", "thinkingLevelMap", "samplingParams"]);
   for (const [key, value] of Object.entries(override)) {
     if (NESTED_KEYS.has(key) && typeof value === "object" && value !== null && typeof (result as any)[key] === "object") {
       (result as any)[key] = { ...(result as any)[key], ...value };
@@ -447,6 +468,11 @@ export function buildModels(
   }
 
   return Array.from(modelMap.values()).map((model) => {
+    if (model.type === "classifier") {
+      return { type: "classifier", api: model.api ?? "typesafe-system-one",
+        id: model.id, name: model.name, input: model.input,
+        cost: { ...model.cost }, contextWindow: model.contextWindow };
+    }
     const result: any = {
       id: model.id,
       name: model.name,
@@ -470,6 +496,8 @@ export function buildModels(
     if (model.vision) {
       result.vision = model.vision;
     }
+    if (model.hostedTools !== undefined) result.hostedTools = model.hostedTools;
+    if (model.samplingParams) result.samplingParams = model.samplingParams;
     return result;
   });
 }
@@ -535,7 +563,7 @@ export function deriveThinkingLevelMap(reasoning: any): NeuralwattModel["thinkin
 }
 
 /** Transform a model from the Neuralwatt /v1/models API using metadata. */
-function transformApiModel(apiModel: any): NeuralwattModel | null {
+export function transformApiModel(apiModel: any): NeuralwattModel | null {
   const meta = apiModel.metadata || {};
   const pricing = meta.pricing || {};
   const caps = meta.capabilities || {};
@@ -567,6 +595,12 @@ function transformApiModel(apiModel: any): NeuralwattModel | null {
     maxTokens,
   };
 
+  if (caps.task === "decision") {
+    const { reasoning: _reasoning, maxTokens: _maxTokens, ...classifier } = model;
+    return { ...classifier, type: "classifier", api: "typesafe-system-one" };
+  }
+  if (typeof caps.hosted_tools === "boolean") model.hostedTools = caps.hosted_tools;
+
   const compat: NeuralwattModel["compat"] = {};
   if (caps.developer_role === false) {
     compat.supportsDeveloperRole = false;
@@ -578,8 +612,12 @@ function transformApiModel(apiModel: any): NeuralwattModel | null {
     model.compat = compat;
   }
 
-  if (hasVision && limits.max_images != null) {
-    model.vision = { maxImagesPerRequest: limits.max_images };
+  if (hasVision && (limits.max_images != null || limits.max_images_total != null)) {
+    model.vision = {
+      ...(limits.max_images != null ? { maxImagesPerTurn: limits.max_images } : {}),
+      ...((limits.max_images_total ?? limits.max_images) != null
+        ? { maxImagesPerRequest: limits.max_images_total ?? limits.max_images } : {}),
+    };
   }
 
   // Same derivation as scripts/update-models.js (the two transformModel
@@ -652,6 +690,11 @@ function mergeWithEmbedded(liveModels: NeuralwattModel[], embeddedModels: Neural
           cacheRead: liveModel.cost.cacheRead || embedded.cost.cacheRead,
           cacheWrite: liveModel.cost.cacheWrite || embedded.cost.cacheWrite,
         },
+        type: liveModel.type ?? embedded.type,
+        api: liveModel.api ?? embedded.api,
+        hostedTools: liveModel.hostedTools ?? embedded.hostedTools,
+        ...(liveModel.vision ? { vision: { ...embedded.vision, ...liveModel.vision } } : {}),
+        maxTokens: liveModel.maxTokens ?? embedded.maxTokens,
         contextWindow: liveModel.contextWindow || embedded.contextWindow,
       });
     } else {
@@ -717,7 +760,16 @@ function loadStaleModels(embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
       cached.push(em);
     }
   }
-  return cached;
+  // Upgrade caches that treated decisions as chat or used the per-turn cap
+  // for the entire conversation. Authenticated live refresh follows shortly.
+  return cached.map((model) => {
+    const embedded = embeddedModels.find((entry) => entry.id === model.id);
+    if (embedded?.type === "classifier" && model.type !== "classifier") return embedded;
+    if (embedded?.vision?.maxImagesPerTurn !== undefined && model.vision?.maxImagesPerTurn === undefined) {
+      return { ...model, vision: { ...model.vision, ...embedded.vision } };
+    }
+    return model;
+  });
 }
 
 async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[], signal?: AbortSignal): Promise<NeuralwattModel[] | null> {
@@ -2247,9 +2299,7 @@ export function streamNeuralwatt(
     );
   }
 
-  const maxImages = model.vision?.maxImagesPerRequest as number | undefined;
-  const evictionHysteresis = model.vision?.evictionHysteresis as number | undefined;
-  const transformedContext = transformContextForImageLimit(context, maxImages, evictionHysteresis);
+  const transformedContext = transformContextForImageLimits(context, model.vision);
 
   // API surface selection. Default chat-completions; opt into the staged
   // /v1/responses rollout via { "api": "responses" } in neuralwatt.json.
@@ -2283,7 +2333,8 @@ export function streamNeuralwatt(
   const extraKwargs = neuralwattModel.compat?.chatTemplateKwargs;
   const hasExtraKwargs =
     !!extraKwargs && typeof extraKwargs === "object" && Object.keys(extraKwargs).length > 0;
-  const onPayload = hasExtraKwargs || userOnPayload
+  const hostedTools = config.hostedTools;
+  const onPayload = hasExtraKwargs || userOnPayload || (hostedTools && typeof hostedTools === "object")
     ? async (params: any, mdl: any) => {
       let p = params;
       if (userOnPayload) {
@@ -2299,7 +2350,7 @@ export function streamNeuralwatt(
           },
         };
       }
-      return p;
+      return applyHostedTools(p, useResponses, hostedTools, neuralwattModel.hostedTools);
     }
     : undefined;
 
@@ -2309,6 +2360,12 @@ export function streamNeuralwatt(
   // settle out of order. Each call now owns its interceptor and reader.
   const upstreamFetch = streamOptions.fetch ?? globalThis.fetch;
   const energyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (hostedTools === false) {
+      const headers = new Headers(input instanceof Request ? input.headers : undefined);
+      new Headers(init?.headers).forEach((value, key) => headers.set(key, value));
+      headers.set("X-NW-Tools-Opt-Out", "true");
+      init = { ...init, headers };
+    }
     const response = await upstreamFetch(input, init);
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (!response.body || !(url.includes("/chat/completions") || url.includes("/responses"))) return response;
@@ -2400,7 +2457,10 @@ export function makeProviderConfig(models: NeuralwattModel[] = getStaleModels())
     baseUrl: resolveBaseUrl(),
     apiKey: "$NEURALWATT_API_KEY",
     api: "neuralwatt" as const,
-    models,
+    models: models.map((model): ProviderModelConfig => model.type === "classifier"
+      ? { ...model, type: "classifier" }
+      : { ...model, type: "chat", reasoning: model.reasoning ?? false, maxTokens: model.maxTokens ?? model.contextWindow }),
+    classifiers: { "typesafe-system-one": { classify: classifySystemOne } },
     streamSimple: streamNeuralwatt,
     headers: {
       "X-NW-MCR-Ext-Version": "$X_NW_MCR_EXT_VERSION",

@@ -1,5 +1,22 @@
 [
   {
+    "type": "classifier",
+    "api": "typesafe-system-one",
+    "id": "clef-flash",
+    "name": "Clef Flash",
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.18,
+      "output": 0,
+      "cacheRead": 0.018,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128
+  },
+  {
     "id": "deepseek-v4-flash",
     "name": "DeepSeek V4 Flash",
     "reasoning": true,
@@ -26,7 +43,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "deepseek-v4-flash-0731-canary",
@@ -55,7 +73,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "deepseek-v4-flash-flex",
@@ -84,7 +103,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "deepseek-v4-flash-speed",
@@ -113,7 +133,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "deepseek-v4.1-flash",
@@ -136,7 +157,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -146,7 +168,8 @@
       "high": "high",
       "xhigh": "xhigh",
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "deepseek-v4.1-flash-flex",
@@ -169,7 +192,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -179,7 +203,8 @@
       "high": "high",
       "xhigh": "xhigh",
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "deepseek-v4.1-flash-speed",
@@ -202,7 +227,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -212,7 +238,8 @@
       "high": "high",
       "xhigh": "xhigh",
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "gemma-4-31b",
@@ -235,6 +262,7 @@
       "supportsReasoningEffort": true
     },
     "vision": {
+      "maxImagesPerTurn": 4,
       "maxImagesPerRequest": 4
     },
     "thinkingLevelMap": {
@@ -245,7 +273,8 @@
       "high": null,
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "glm-5.3",
@@ -274,7 +303,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "glm-5.3-flex",
@@ -303,7 +333,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "glm-5.3-flash",
@@ -326,7 +357,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": null,
@@ -336,7 +368,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "glm-5.3-flash-flex",
@@ -359,7 +392,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": null,
@@ -369,7 +403,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "kimi-k2.7-code",
@@ -391,8 +426,10 @@
       "supportsDeveloperRole": false
     },
     "vision": {
-      "maxImagesPerRequest": 20
-    }
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "hostedTools": false
   },
   {
     "id": "kimi-k2.7-code-flex",
@@ -414,8 +451,10 @@
       "supportsDeveloperRole": false
     },
     "vision": {
-      "maxImagesPerRequest": 20
-    }
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "hostedTools": false
   },
   {
     "id": "kimi-k2.7-code-fast",
@@ -437,8 +476,10 @@
       "supportsDeveloperRole": false
     },
     "vision": {
-      "maxImagesPerRequest": 20
-    }
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "hostedTools": false
   },
   {
     "id": "kimi-k3",
@@ -461,7 +502,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -471,7 +513,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "kimi-k3-flex",
@@ -494,7 +537,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -504,7 +548,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "kimi-k3-fast",
@@ -527,8 +572,10 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
-    }
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "hostedTools": false
   },
   {
     "id": "mimo-v2.6-pro",
@@ -551,7 +598,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -561,7 +609,8 @@
       "high": "high",
       "xhigh": null,
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "nw-flash",
@@ -584,7 +633,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -594,7 +644,8 @@
       "high": "high",
       "xhigh": "xhigh",
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "nw-flash-flex",
@@ -617,7 +668,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -627,7 +679,8 @@
       "high": "high",
       "xhigh": "xhigh",
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "nw-large",
@@ -650,7 +703,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -660,7 +714,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "nw-large-flex",
@@ -683,7 +738,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -693,7 +749,8 @@
       "high": "high",
       "xhigh": null,
       "max": "max"
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "nw-small",
@@ -716,7 +773,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -726,7 +784,8 @@
       "high": null,
       "xhigh": "xhigh",
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "nw-small-flex",
@@ -749,7 +808,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -759,7 +819,8 @@
       "high": null,
       "xhigh": "xhigh",
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "qwen-3.8-27b",
@@ -782,7 +843,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -792,7 +854,8 @@
       "high": null,
       "xhigh": "xhigh",
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "qwen-3.8-27b-flex",
@@ -815,7 +878,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -825,7 +889,8 @@
       "high": null,
       "xhigh": "xhigh",
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "qwen3.6-35b",
@@ -848,7 +913,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -858,7 +924,8 @@
       "high": "high",
       "xhigh": null,
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "qwen3.6-35b-flex",
@@ -881,7 +948,8 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
     },
     "thinkingLevelMap": {
       "off": "none",
@@ -891,7 +959,8 @@
       "high": "high",
       "xhigh": null,
       "max": null
-    }
+    },
+    "hostedTools": false
   },
   {
     "id": "qwen3.6-35b-fast",
@@ -914,7 +983,9 @@
       "supportsReasoningEffort": true
     },
     "vision": {
-      "maxImagesPerRequest": 20
-    }
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "hostedTools": false
   }
 ]

@@ -234,7 +234,9 @@ function thinkingLevelMapsEqual(a, b) {
  *   metadata.capabilities.vision            → input: ["text", "image"]
  *   metadata.capabilities.developer_role     → compat.supportsDeveloperRole
  *   metadata.capabilities.reasoning_effort   → compat.supportsReasoningEffort
- *   metadata.limits.max_images               → vision.maxImagesPerRequest
+ *   metadata.limits.max_images               → vision.maxImagesPerTurn
+ *   metadata.limits.max_images_total         → vision.maxImagesPerRequest
+ *   metadata.capabilities.task: decision     → type: classifier, System One API
  *   metadata.limits.max_context_length       → contextWindow
  *   metadata.limits.max_output_tokens        → maxTokens
  */
@@ -276,6 +278,12 @@ function transformModel(apiModel) {
     maxTokens,
   };
 
+  if (caps.task === 'decision') {
+    const { reasoning: _reasoning, maxTokens: _maxTokens, ...classifier } = model;
+    return { ...classifier, type: 'classifier', api: 'typesafe-system-one' };
+  }
+  if (typeof caps.hosted_tools === 'boolean') model.hostedTools = caps.hosted_tools;
+
   // Compat settings (only include non-default values)
   const compat = {};
   if (caps.developer_role === false) {
@@ -289,8 +297,12 @@ function transformModel(apiModel) {
   }
 
   // Vision settings (only for vision models with a max_images limit)
-  if (hasVision && limits.max_images != null) {
-    model.vision = { maxImagesPerRequest: limits.max_images };
+  if (hasVision && (limits.max_images != null || limits.max_images_total != null)) {
+    model.vision = {
+      ...(limits.max_images != null ? { maxImagesPerTurn: limits.max_images } : {}),
+      ...((limits.max_images_total ?? limits.max_images) != null
+        ? { maxImagesPerRequest: limits.max_images_total ?? limits.max_images } : {}),
+    };
   }
 
   // Thinking-level palette from metadata.reasoning (provider-owned since the
@@ -316,7 +328,7 @@ function formatContextWindow(n) {
   return n.toString();
 }
 
-const NESTED_PATCH_KEYS = new Set(['compat', 'vision', 'cost']);
+const NESTED_PATCH_KEYS = new Set(['compat', 'vision', 'cost', 'samplingParams']);
 
 /**
  * Apply overrides from patch.json to a model (mutates model in place).
@@ -449,7 +461,7 @@ function generateReadmeTable(models) {
   ];
 
   for (const model of models) {
-    const name = model.name;
+    const name = model.type === 'classifier' ? `${model.name} (classifier; preview access)` : model.name;
     const context = formatContextWindow(model.contextWindow);
     const vision = model.input.includes('image') ? '✅' : '❌';
     const reasoning = model.reasoning ? '✅' : '❌';
@@ -486,7 +498,7 @@ function updateReadme(models) {
  * Keeps the full model spec (pricing, compat, vision) since these now come from the API.
  */
 function cleanModelForJson(model) {
-  const ALLOWED = ['id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens', 'compat', 'vision', 'thinkingLevelMap'];
+  const ALLOWED = ['type', 'api', 'id', 'name', 'reasoning', 'input', 'cost', 'contextWindow', 'maxTokens', 'compat', 'vision', 'thinkingLevelMap', 'hostedTools', 'samplingParams'];
   const clean = {};
   for (const key of ALLOWED) {
     if (key in model) clean[key] = model[key];

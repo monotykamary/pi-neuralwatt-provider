@@ -18,7 +18,8 @@ try {
   const hostEntry = process.env.PI1_HOST_ENTRY === 'bundle' ? 'dist/bundle/index.js' : 'dist/index.js';
   const sdk = await import(host ? pathToFileURL(join(host, hostEntry)).href : '@earendil-works/pi-coding-agent');
   const { createAgentSession, DefaultResourceLoader, ModelRuntime, SessionManager, SettingsManager, VERSION } = sdk;
-  assert.equal(VERSION, '1.0.0', 'executing host version');
+  if (host) assert.match(VERSION, /^1[.]0[.]/, 'executing Pi 1.0 host');
+  else assert.equal(VERSION, '1.0.0', 'executing development host version');
   assert.equal((await import('@earendil-works/pi-coding-agent')).VERSION, '1.0.0', 'development host version');
   const manifest = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
   for (const name of ['@earendil-works/pi-ai', '@earendil-works/pi-agent-core', '@earendil-works/pi-coding-agent', '@earendil-works/pi-tui', 'typebox']) {
@@ -49,7 +50,7 @@ try {
     assert.equal(typeof definition.parameters, 'object'); assert(!tools.has(name)); tools.add(name);
     assert(session.getAllTools().some(tool => tool.name === name));
   }
-  let modelCount = 0, streamChecks = 0;
+  let modelCount = 0, streamChecks = 0, classifierChecks = 0;
   for (const { name, config } of registrations) {
     const models = modelRuntime.getAllModels(name);
     assert.equal(models.length, config.models.length, `${name}: catalog survives registration`);
@@ -63,6 +64,24 @@ try {
       assert(model.input.includes('text'));
       for (const cost of Object.values(model.cost)) assert(Number.isFinite(cost) && cost >= 0);
     }
+    const classifiers = modelRuntime.getModelsOfType('classifier', name);
+    assert(classifiers.some(m => m.id === 'clef-flash'), 'Clef registered as a classifier');
+    for (const classifier of classifiers) {
+      assert(!modelRuntime.getModels(name).some(m => m.id === classifier.id), 'classifier is not in chat selection');
+      const result = await modelRuntime.classify(classifier, {
+        state: { message: 'approved' },
+        questions: { ok: { type: 'bool', instructions: 'Approved?', criteria: { true: 'Yes', false: 'No' } } },
+      }, { apiKey: 'offline-placeholder', maxRetries: 0, fetch: async (url, init) => {
+        assert.equal(String(url), 'https://api.neuralwatt.com/v1/systemone');
+        assert.equal(new Headers(init.headers).get('authorization'), 'Bearer offline-placeholder');
+        assert.equal(JSON.parse(init.body).questions.ok.type, 'noul');
+        return Response.json({ answers: { ok: { type: 'noul', noul: 0.95 } }, usage: { input_tokens: 100, output_tokens: 0 } });
+      } });
+      assert.equal(result.stopReason, 'stop', result.errorMessage);
+      assert.equal(result.answers.ok.probability, 0.95);
+      assert.equal(result.usage.input, 100);
+      classifierChecks++;
+    }
     const chatModels = modelRuntime.getModels(name);
     const model = chatModels.find(m => m.api === 'openai-completions') ?? chatModels[0];
     assert(model, 'a chat model is available for offline transport checks');
@@ -75,8 +94,8 @@ try {
         const chunks = [{ id: 'offline', choices: [{ index: 0, delta: { role: 'assistant', ...delta }, finish_reason: null }] }, { id: 'offline', choices: [{ index: 0, delta: {}, finish_reason: tool ? 'tool_calls' : 'stop' }], usage: { prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 } }];
         return new Response(chunks.map(c => `data: ${JSON.stringify(c)}\n\n`).join('') + 'data: [DONE]\n\n', { headers: { 'content-type': 'text/event-stream' } });
       };
-      const stream = modelRuntime.streamSimple(model, { messages: [{ role: 'system', content: 'Offline probe', toolsAdded: [{ name: 'probe', description: 'Probe', parameters: { type: 'object', properties: { value: { type: 'integer' } }, required: ['value'] } }], timestamp: 0 }, user] }, {
-        apiKey: 'offline-placeholder', maxTokens: 32, maxRetries: 0, fetch,
+      const stream = modelRuntime.streamSimple({ ...model, samplingParams: { top_k: 20, seed: 1, repetition_penalty: 1.1 } }, { messages: [{ role: 'system', content: 'Offline probe', toolsAdded: [{ name: 'probe', description: 'Probe', parameters: { type: 'object', properties: { value: { type: 'integer' } }, required: ['value'] } }], timestamp: 0 }, user] }, {
+        apiKey: 'offline-placeholder', maxTokens: 32, maxRetries: 0, fetch, samplingParams: { seed: 42 },
         onPayload: p => { payloadCalls++; return { ...p, temperature: 0.123 }; },
         onResponse: () => { responseCalls++; }, onProviderStreamEvent: () => { observed++; },
       });
@@ -88,6 +107,7 @@ try {
       assert.equal(events.at(-1), 'done');
       assert.equal(payloadCalls, 1); assert.equal(responseCalls, 1); assert(observed >= 2);
       assert.equal(wire.temperature, 0.123); assert.equal(wire.tools[0].function.name, 'probe');
+      assert.equal(wire.top_k, 20); assert.equal(wire.seed, 42); assert.equal(wire.repetition_penalty, 1.1);
       assert.equal(result.usage.totalTokens, 12);
       if (tool) assert.deepEqual(result.content.find(c => c.type === 'toolCall').arguments, { value: 7 });
       else if (!empty) assert.equal(result.content.find(c => c.type === 'text').text, 'Hello 界');
@@ -107,7 +127,7 @@ try {
   }
   await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ repo: manifest.name, pi: VERSION, hostEntry, extensions: loaded.extensions.length, tools: tools.size, models: modelCount, streamChecks, lifecycle: 'passed' }));
+  console.log(JSON.stringify({ repo: manifest.name, pi: VERSION, hostEntry, extensions: loaded.extensions.length, tools: tools.size, models: modelCount, streamChecks, classifierChecks, lifecycle: 'passed' }));
 } finally {
   session?.dispose(); globalThis.fetch = previousFetch;
   if (previousHome === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousHome;

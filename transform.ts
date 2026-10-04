@@ -43,6 +43,32 @@ export function imageEvictionCount(imageCount: number, maxImages: number, hyster
   return (Math.floor((imageCount - maxImages - 1) / h) + 1) * h;
 }
 
+interface VisionLimits {
+  maxImagesPerTurn?: number;
+  maxImagesPerRequest?: number;
+  evictionHysteresis?: number;
+}
+
+/** Limit the current user turn separately from resent conversation history. */
+export function transformContextForImageLimits(context: any, limits?: VisionLimits): any {
+  if (!limits || !Array.isArray(context?.messages)) return context;
+  let result = context;
+  if (limits.maxImagesPerTurn !== undefined) {
+    // Tool-result images after the latest user message belong to that turn too.
+    // Without a user message (e.g. a helper context), treat all messages as current.
+    let start = 0;
+    for (let i = context.messages.length - 1; i >= 0; i--) {
+      if (context.messages[i]?.role === "user") { start = i; break; }
+    }
+    const current = { messages: context.messages.slice(start) };
+    const limited = transformContextForImageLimit(current, limits.maxImagesPerTurn, 1);
+    if (limited !== current) {
+      result = { ...context, messages: [...context.messages.slice(0, start), ...limited.messages] };
+    }
+  }
+  return transformContextForImageLimit(result, limits.maxImagesPerRequest, limits.evictionHysteresis);
+}
+
 export function transformContextForImageLimit(
   context: any,
   maxImages: number | undefined,
