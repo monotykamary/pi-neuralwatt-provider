@@ -58,6 +58,7 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |
 | MiMo-V2.6-Pro | 1.0M | ✅ | ✅ | $0.87 | $0.04 | $1.74 |
+| MiMo-V2.6-Pro (flex) | 1.0M | ✅ | ✅ | $0.57 | $0.02 | $1.13 |
 | Neuralwatt Flash | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
 | Neuralwatt Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.01 | $0.39 |
 | Neuralwatt Large | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |

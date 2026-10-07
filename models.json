@@ -613,6 +613,41 @@
     "hostedTools": false
   },
   {
+    "id": "mimo-v2.6-pro-flex",
+    "name": "MiMo-V2.6-Pro (flex)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.5655,
+      "output": 1.131,
+      "cacheRead": 0.0234,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": null
+    },
+    "hostedTools": false
+  },
+  {
     "id": "nw-flash",
     "name": "Neuralwatt Flash",
     "reasoning": true,
