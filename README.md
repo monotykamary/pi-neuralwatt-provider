@@ -51,9 +51,6 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | GLM 5.3 (flex) | 1.0M | ❌ | ✅ | $0.94 | $0.09 | $2.92 |
 | GLM-5.3 Flash | 1.0M | ✅ | ✅ | $0.15 | $0.03 | $0.50 |
 | GLM-5.3 Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.02 | $0.33 |
-| Kimi K2.7 Code | 262K | ✅ | ✅ | $0.95 | $0.10 | $4.00 |
-| Kimi K2.7 Code (flex) | 262K | ✅ | ✅ | $0.62 | $0.06 | $2.60 |
-| Kimi K2.7 Code Fast | 262K | ✅ | ✅ | $0.95 | $0.10 | $4.00 |
 | Kimi K3 | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |
 | Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |
@@ -71,6 +68,9 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Qwen3.6 35B (flex) | 262K | ✅ | ✅ | $0.19 | $0.02 | $0.75 |
 | Qwen3.6 35B Fast | 262K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
 | DeepSeek V4-Pro | 1.0M | ❌ | ✅ | $1.00 | $0.10 | $3.00 |
+| Kimi K2.7 Code | 262K | ✅ | ✅ | $0.95 | $0.10 | $4.00 |
+| Kimi K2.7 Code (flex) | 262K | ✅ | ✅ | $0.62 | $0.06 | $2.60 |
+| Kimi K2.7 Code Fast | 262K | ✅ | ✅ | $0.95 | $0.10 | $4.00 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | — | $2.59 |
