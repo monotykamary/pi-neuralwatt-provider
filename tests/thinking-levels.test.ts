@@ -97,8 +97,9 @@ describe("streamNeuralwatt thinking-level forwarding", () => {
       .fn()
       .mockResolvedValueOnce(new Response(': energy {"energy_joules":2}\n'))
       .mockResolvedValueOnce(new Response(': energy {"energy_joules":3}\n'));
-    const first = streamNeuralwatt(glm52, context, { apiKey: "sk-test", fetch: upstream } as any);
-    const second = streamNeuralwatt(glm52, context, { apiKey: "sk-test", fetch: upstream } as any);
+    // sessionId marks both as main-loop requests (pi's agent loop sets it).
+    const first = streamNeuralwatt(glm52, context, { apiKey: "sk-test", sessionId: "sess-1", fetch: upstream } as any);
+    const second = streamNeuralwatt(glm52, context, { apiKey: "sk-test", sessionId: "sess-1", fetch: upstream } as any);
     const firstFetch = __streamCalls[0].options.fetch as typeof globalThis.fetch;
     const secondFetch = __streamCalls[1].options.fetch as typeof globalThis.fetch;
 

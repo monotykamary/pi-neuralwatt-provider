@@ -850,7 +850,20 @@ let pendingQueueSeconds: number | undefined;
 // MCR fp / grid id).
 let sessionFlexDiscountPct: number | undefined;
 let sessionFlexQueueSeconds: number | undefined;
-let teeReader: Promise<void> | undefined;
+// Response tees are split by origin. pi's agent loop passes the session id as
+// options.sessionId on every main-loop request; other extensions' background
+// model calls (memory workers, classifiers) do not. turn_end awaits only the
+// main loop's tees: pi awaits extension turn_end handlers before the next
+// main-loop request, so waiting on a background stream there stalls the loop.
+let currentSessionId: string | undefined;
+const mainTeeReaders = new Set<Promise<void>>();
+// Background tees are still read to the end (an unread tee branch buffers the
+// whole response), but into a private sink: their energy/cost never reaches
+// the session's turn entries or totals, and their MCR data never reaches the
+// bridge. The totals below are kept for diagnostics only.
+const backgroundTeeReaders = new Set<Promise<void>>();
+let backgroundEnergyJoules = 0;
+let backgroundCostUsd = 0;
 // Live in-flight flex queue indicator (left side of the energy widget): set
 // when a -flex model's stream starts, cleared when it settles. Reference-
 // counted because concurrent streams are possible; the sticky latest-turn
@@ -861,19 +874,78 @@ let liveFlexTicker: ReturnType<typeof setInterval> | undefined;
 let widgetGlyphClampNotified = false;
 let lastFooterCtx: { ui: any } | null = null;
 
-function trackTeeReader(reader: Promise<void>): void {
+function trackTeeReader(reader: Promise<void>, readers: Set<Promise<void>>): void {
   const settled = reader.catch(() => {});
-  teeReader = teeReader
-    ? Promise.all([teeReader, settled]).then(() => undefined)
-    : settled;
+  readers.add(settled);
+  void settled.then(() => readers.delete(settled));
 }
 
-async function settleTeeReaders(): Promise<void> {
-  while (teeReader) {
-    const current = teeReader;
-    await current;
-    if (teeReader === current) teeReader = undefined;
+async function settleTeeReaders(readers: Set<Promise<void>> = mainTeeReaders): Promise<void> {
+  while (readers.size > 0) await Promise.all([...readers]);
+}
+
+function readSessionId(ctx: any): string | undefined {
+  try {
+    const id = ctx?.sessionManager?.getSessionId?.();
+    return typeof id === "string" && id !== "" ? id : undefined;
+  } catch {
+    return undefined;
   }
+}
+
+// A request is the main loop's own when it carries the active session's id
+// (pi-agent-core's Agent sets options.sessionId from the session manager).
+// Requests without a sessionId are extension/background calls.
+function isMainLoopRequest(options: { sessionId?: unknown } | undefined): boolean {
+  const sid = options?.sessionId;
+  if (typeof sid !== "string" || sid === "") return false;
+  return currentSessionId === undefined || sid === currentSessionId;
+}
+
+// Where readEnergyFromTee writes parsed SSE data. The default sink is the
+// module-level pending state committed by turn_end; background streams get a
+// private sink.
+interface TeeSink {
+  energyJoules: number;
+  costUsd: number;
+  energyRaw: Record<string, unknown> | null;
+  mcrSessionRaw: Record<string, unknown> | null;
+  costRaw: Record<string, unknown> | null;
+  serviceTier: string | null;
+  usage: TeeUsageTokens | null;
+  queueSeconds: number | undefined;
+}
+
+const mainTeeSink: TeeSink = {
+  get energyJoules() { return pendingEnergyJoules; },
+  set energyJoules(v) { pendingEnergyJoules = v; },
+  get costUsd() { return pendingCostUsd; },
+  set costUsd(v) { pendingCostUsd = v; },
+  get energyRaw() { return pendingEnergyRaw; },
+  set energyRaw(v) { pendingEnergyRaw = v; },
+  get mcrSessionRaw() { return pendingMcrSessionRaw; },
+  set mcrSessionRaw(v) { pendingMcrSessionRaw = v; },
+  get costRaw() { return pendingCostRaw; },
+  set costRaw(v) { pendingCostRaw = v; },
+  get serviceTier() { return pendingServiceTier; },
+  set serviceTier(v) { pendingServiceTier = v; },
+  get usage() { return pendingUsage; },
+  set usage(v) { pendingUsage = v; },
+  get queueSeconds() { return pendingQueueSeconds; },
+  set queueSeconds(v) { pendingQueueSeconds = v; },
+};
+
+function newPrivateTeeSink(): TeeSink {
+  return {
+    energyJoules: 0,
+    costUsd: 0,
+    energyRaw: null,
+    mcrSessionRaw: null,
+    costRaw: null,
+    serviceTier: null,
+    usage: null,
+    queueSeconds: undefined,
+  };
 }
 
 // Shared bridge for raw SSE comment payloads parsed from the stream tee.
@@ -922,7 +994,14 @@ export function consumePendingMCR(): NWMCRRidge {
 
 // Exposed for testing
 export function getPendingState() {
-  return { pendingEnergyJoules, pendingCostUsd, teeReader, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw, pendingServiceTier, pendingUsage, pendingQueueSeconds };
+  return {
+    pendingEnergyJoules, pendingCostUsd, pendingEnergyRaw, pendingMcrSessionRaw, pendingCostRaw, pendingServiceTier, pendingUsage, pendingQueueSeconds,
+    // Resolve once every in-flight main-loop / background tee has settled.
+    teeReader: mainTeeReaders.size > 0 ? settleTeeReaders(mainTeeReaders) : undefined,
+    backgroundTeeReader: backgroundTeeReaders.size > 0 ? settleTeeReaders(backgroundTeeReaders) : undefined,
+    backgroundEnergyJoules,
+    backgroundCostUsd,
+  };
 }
 
 export function resetSessionState() {
@@ -946,7 +1025,11 @@ export function resetSessionState() {
   pendingServiceTier = null;
   pendingUsage = null;
   pendingQueueSeconds = undefined;
-  teeReader = undefined;
+  mainTeeReaders.clear();
+  backgroundTeeReaders.clear();
+  backgroundEnergyJoules = 0;
+  backgroundCostUsd = 0;
+  currentSessionId = undefined;
   // Also clear the bridge so stale data doesn't leak across tests
   const bridge = (globalThis as any)[NW_MCR_BRIDGE];
   if (bridge) {
@@ -2031,7 +2114,10 @@ export function liveFlexQueueState(): { streams: number; startedAt: number | nul
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
-export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
+export async function readEnergyFromTee(
+  body: ReadableStream<Uint8Array>,
+  sink: TeeSink = mainTeeSink,
+): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -2046,9 +2132,9 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
   let sawContentChunk = false;
 
   function captureDataChunk(trimmed: string): void {
-    if (!pendingServiceTier) {
+    if (!sink.serviceTier) {
       const tier = /"service_tier"\s*:\s*"([^"]+)"/.exec(trimmed);
-      if (tier) pendingServiceTier = tier[1];
+      if (tier) sink.serviceTier = tier[1];
     }
     if (!sawContentChunk) {
       const created = /"created"\s*:\s*(\d+)/.exec(trimmed);
@@ -2059,7 +2145,7 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
         // First chunk whose delta carries something: the queue is over.
         sawContentChunk = true;
         if (firstHeartbeatCreated !== undefined && created) {
-          pendingQueueSeconds = Math.max(0, Number(created[1]) - firstHeartbeatCreated);
+          sink.queueSeconds = Math.max(0, Number(created[1]) - firstHeartbeatCreated);
         }
       }
     }
@@ -2080,7 +2166,7 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
             typeof u.prompt_tokens_details?.cached_tokens === "number" ? u.prompt_tokens_details.cached_tokens
             : typeof u.input_tokens_details?.cached_tokens === "number" ? u.input_tokens_details.cached_tokens
             : 0;
-          pendingUsage = { prompt, completion, cachedInput };
+          sink.usage = { prompt, completion, cachedInput };
         }
       } catch {
         // Malformed usage chunk, ignore
@@ -2093,23 +2179,23 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
     if (trimmed.startsWith(": energy ")) {
       try {
         const energy = JSON.parse(trimmed.slice(9));
-        pendingEnergyJoules += energy.energy_joules || 0;
-        pendingEnergyRaw = energy;
+        sink.energyJoules += energy.energy_joules || 0;
+        sink.energyRaw = energy;
       } catch {
         // Malformed energy comment, ignore
       }
     } else if (trimmed.startsWith(": mcr-session ")) {
       try {
         const mcr = JSON.parse(trimmed.slice(14));
-        pendingMcrSessionRaw = mcr;
+        sink.mcrSessionRaw = mcr;
       } catch {
         // Malformed mcr-session comment, ignore
       }
     } else if (trimmed.startsWith(": cost ")) {
       try {
         const cost = JSON.parse(trimmed.slice(7));
-        pendingCostUsd += cost.request_cost_usd || 0;
-        pendingCostRaw = cost;
+        sink.costUsd += cost.request_cost_usd || 0;
+        sink.costRaw = cost;
       } catch {
         // Malformed cost comment, ignore
       }
@@ -2359,6 +2445,7 @@ export function streamNeuralwatt(
   // a global save/patch/restore stack leaves a stale wrapper installed when they
   // settle out of order. Each call now owns its interceptor and reader.
   const upstreamFetch = streamOptions.fetch ?? globalThis.fetch;
+  const isMainLoop = isMainLoopRequest(streamOptions);
   const energyFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     if (hostedTools === false) {
       const headers = new Headers(input instanceof Request ? input.headers : undefined);
@@ -2371,7 +2458,18 @@ export function streamNeuralwatt(
     if (!response.body || !(url.includes("/chat/completions") || url.includes("/responses"))) return response;
 
     const [bodyForSdk, bodyForEnergy] = response.body.tee();
-    trackTeeReader(readEnergyFromTee(bodyForEnergy));
+    if (isMainLoop) {
+      trackTeeReader(readEnergyFromTee(bodyForEnergy), mainTeeReaders);
+    } else {
+      const sink = newPrivateTeeSink();
+      trackTeeReader(
+        readEnergyFromTee(bodyForEnergy, sink).finally(() => {
+          backgroundEnergyJoules += sink.energyJoules;
+          backgroundCostUsd += sink.costUsd;
+        }),
+        backgroundTeeReaders,
+      );
+    }
     return new Response(bodyForSdk, {
       headers: response.headers,
       status: response.status,
@@ -2512,6 +2610,7 @@ export default function (pi: ExtensionAPI) {
     const signal = revalidateAbort.signal;
     config = loadConfig();
     resetSessionState();
+    currentSessionId = readSessionId(ctx);
     cachedQuota = null;
     // Bust the stale-models cache so a user-edited neuralwatt.json (e.g. toggled
     // modelOverrides) takes effect this session instead of serving the
@@ -2576,8 +2675,12 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("turn_end", async (event, ctx) => {
-    // Ensure every concurrent response tee has finished before committing.
-    await settleTeeReaders();
+    // Wait only for the main loop's own response tee(s) before committing
+    // (normally already finished by now). Background tees from other
+    // extensions' model calls are never awaited here: pi awaits this handler
+    // before the next main-loop request, so waiting on them stalls the loop.
+    await settleTeeReaders(mainTeeReaders);
+    currentSessionId = readSessionId(ctx) ?? currentSessionId;
 
     // Publish MCR data to the globalThis bridge so neuralwatt-mcr.ts can
     // read it regardless of ESM module instance identity.
