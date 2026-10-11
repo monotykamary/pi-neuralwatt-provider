@@ -14,6 +14,11 @@
  * Model resolution strategy: Stale-While-Revalidate
  *   1. Serve stale immediately: disk cache → embedded models.json (zero-latency)
  *   2. Revalidate in background: live API /models → merge with embedded → cache → hot-swap
+ *      Quiet startup sync (sync-policy.ts): only with an API key, only when the
+ *      disk cache is older than the TTL (1h, PI_PROVIDER_SYNC_TTL_MS) or the key
+ *      changed, and only one pi process at a time (lock file next to the cache).
+ *      The startup /quota + /usage poll is deduped the same way (2 min snapshot
+ *      in cache/neuralwatt-account.json) and only runs in interactive sessions.
  *   3. Grace-period models from deprecated-models.json seeded into the base list
  *      (served until update-models.js evicts them, 14 days after delisting)
  *   4. patch.json + custom-models.json applied on top of whichever source won
@@ -94,6 +99,7 @@ import deprecatedData from "./deprecated-models.json" with { type: "json" };
 import { transformContextForImageLimits } from "./transform";
 import fs from "fs";
 import path from "path";
+import { acquireModelSync, cacheChangedSinceLoad, keyFingerprint, markCacheLoaded, writeFileAtomic } from "./sync-policy";
 
 // Use a host-whitelisted entrypoint: pi's jiti aliases do not resolve arbitrary
 // pi-ai/api subpaths. The built-in provider dispatches the same System One wire
@@ -662,7 +668,8 @@ function loadCachedModels(): NeuralwattModel[] | null {
 function cacheModels(models: NeuralwattModel[]): void {
   try {
     fs.mkdirSync(CACHE_DIR, { recursive: true });
-    fs.writeFileSync(CACHE_PATH, JSON.stringify(models, null, 2) + "\n");
+    // Atomic (tmp + rename): other pi processes may be reading the cache right now.
+    writeFileAtomic(CACHE_PATH, JSON.stringify(models, null, 2) + "\n");
   } catch {
     // Cache write failure is non-fatal
   }
@@ -750,6 +757,7 @@ function withDeprecated(models: NeuralwattModel[], deprecated: DeprecatedModelMa
 }
 
 function loadStaleModels(embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
+  markCacheLoaded(CACHE_PATH); // stat before read: lets session_start spot newer caches
   const cached = loadCachedModels();
   if (!cached || cached.length === 0) return embeddedModels;
 
@@ -772,13 +780,26 @@ function loadStaleModels(embeddedModels: NeuralwattModel[]): NeuralwattModel[] {
   });
 }
 
-async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[], signal?: AbortSignal): Promise<NeuralwattModel[] | null> {
-  if (!apiKey) return null;
-  const liveModels = await fetchLiveModels(apiKey, signal);
-  if (!liveModels || liveModels.length === 0) return null;
-  const merged = mergeWithEmbedded(liveModels, embeddedModels);
-  cacheModels(merged);
-  return merged;
+/**
+ * Background revalidation, gated by the quiet startup sync policy
+ * (sync-policy.ts): no key → no fetch; fresh cache (TTL) → no fetch; another
+ * process already fetching → no fetch. When skipped, a cache that another
+ * process refreshed since we loaded it is adopted from disk instead.
+ * `force` bypasses the TTL; it is still single-flight.
+ */
+async function revalidateModels(apiKey: string | undefined, embeddedModels: NeuralwattModel[], signal?: AbortSignal, force = false): Promise<NeuralwattModel[] | null> {
+  const lease = acquireModelSync({ cachePath: CACHE_PATH, apiKey, force });
+  if (!lease) return cacheChangedSinceLoad(CACHE_PATH) ? loadStaleModels(embeddedModels) : null;
+  let merged: NeuralwattModel[] | null = null;
+  try {
+    const liveModels = apiKey ? await fetchLiveModels(apiKey, signal) : null;
+    if (!liveModels || liveModels.length === 0) return null;
+    merged = mergeWithEmbedded(liveModels, embeddedModels);
+    cacheModels(merged);
+    return merged;
+  } finally {
+    lease.release(merged ? "fetched" : signal?.aborted ? "aborted" : "failed");
+  }
 }
 
 // ─── API Key Resolution (via ModelRegistry) ────────────────────────────────────
@@ -1341,9 +1362,105 @@ function refreshFlexPricingMeasurement(apiKey: string, signal?: AbortSignal): vo
       if (m !== undefined) {
         measuredFlexMultiplier = m;
         refreshLiveFlexBadge(); // badge may now show the measured discount
+        writeAccountSnapshot(apiKey, { flexMultiplier: m });
       }
     })
     .catch(() => { /* best-effort */ });
+}
+
+// ─── Account snapshot (quota + measured flex multiplier) ──────────────────────
+//
+// The startup account poll (/quota + /usage/summary + /usage/by-model) is
+// deduped across pi processes with the same quiet-sync policy as the model
+// catalog: one process fetches (lock next to the snapshot), the others render
+// the snapshot it wrote. Turn-triggered polls (agent_settled, turn_end,
+// session_tree) keep their own cadence and refresh the snapshot as they land.
+// The snapshot embeds the key fingerprint (never the key) so it is only ever
+// adopted for the key that fetched it.
+const ACCOUNT_CACHE_PATH = path.join(CACHE_DIR, `${PROVIDER_ID}-account.json`);
+/**
+ * Startup account polls reuse a snapshot younger than this. Short on purpose:
+ * the balance/kWh line changes with every billed request, and turn-triggered
+ * polls keep it current while a session is active. 2 minutes is enough to
+ * collapse /new, /reload and parallel interactive sessions into one poll.
+ */
+const ACCOUNT_SYNC_TTL_MS = 2 * 60 * 1000;
+/** A skipped poll (fresh, locked, backoff) renders a snapshot at most this old. */
+const ACCOUNT_ADOPT_MAX_AGE_MS = 60 * 60 * 1000;
+
+interface AccountSnapshot {
+  version: 1;
+  keyFingerprint: string;
+  fetchedAt: number;
+  quota?: QuotaResponse;
+  flexMultiplier?: number;
+}
+
+function readAccountSnapshot(apiKey: string): AccountSnapshot | null {
+  try {
+    const data = JSON.parse(fs.readFileSync(ACCOUNT_CACHE_PATH, "utf8"));
+    return data && typeof data === "object" && data.keyFingerprint === keyFingerprint(apiKey) ? data as AccountSnapshot : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Merge a fresh quota and/or flex measurement into the on-disk snapshot
+ * (atomic write). A flex-only update never creates a snapshot without a
+ * quota, so a fresh snapshot always carries something to render.
+ */
+function writeAccountSnapshot(apiKey: string, update: { quota?: QuotaResponse | null; flexMultiplier?: number }): void {
+  try {
+    const previous = readAccountSnapshot(apiKey);
+    const quota = update.quota ?? previous?.quota;
+    if (!quota) return;
+    const flexMultiplier = update.flexMultiplier ?? previous?.flexMultiplier;
+    const snapshot: AccountSnapshot = { version: 1, keyFingerprint: keyFingerprint(apiKey), fetchedAt: Date.now(), quota };
+    if (flexMultiplier !== undefined) snapshot.flexMultiplier = flexMultiplier;
+    fs.mkdirSync(CACHE_DIR, { recursive: true });
+    writeFileAtomic(ACCOUNT_CACHE_PATH, JSON.stringify(snapshot) + "\n");
+  } catch {
+    // Non-fatal: other processes just poll themselves.
+  }
+}
+
+/**
+ * Startup account poll. Interactive sessions only (print mode and child
+ * agents render no footer), never without a key, and single-flight across
+ * processes. Returns what to render: a fresh fetch, or the snapshot another
+ * process wrote. Print-mode sessions only adopt the measured flex multiplier
+ * from disk (no network) so per-turn flex estimates stay consistent.
+ */
+async function syncAccountAtStartup(apiKey: string, hasUI: boolean, signal: AbortSignal): Promise<Partial<AccountSnapshot> | null> {
+  if (!hasUI) {
+    const snapshot = readAccountSnapshot(apiKey);
+    return snapshot?.flexMultiplier !== undefined ? { flexMultiplier: snapshot.flexMultiplier } : null;
+  }
+  const lease = acquireModelSync({
+    cachePath: ACCOUNT_CACHE_PATH,
+    apiKey,
+    ttlMs: ACCOUNT_SYNC_TTL_MS,
+    isValidCache: (data) => data != null,
+  });
+  if (!lease) {
+    const snapshot = readAccountSnapshot(apiKey);
+    return snapshot && Date.now() - snapshot.fetchedAt < ACCOUNT_ADOPT_MAX_AGE_MS ? snapshot : null;
+  }
+  let fetched = false;
+  try {
+    // Parallel, each capped at LIVE_FETCH_TIMEOUT_MS: well under the lock's stale timeout.
+    const [quota, flexMultiplier] = await Promise.all([
+      fetchQuota(apiKey, signal),
+      fetchFlexPricingMultiplier(apiKey, signal),
+    ]);
+    if (!quota) return null;
+    writeAccountSnapshot(apiKey, { quota, flexMultiplier });
+    fetched = true;
+    return { quota, flexMultiplier };
+  } finally {
+    lease.release(fetched ? "fetched" : signal.aborted ? "aborted" : "failed");
+  }
 }
 
 // Progressive-disclosure quota text. Returns the highest-fidelity string
@@ -2527,40 +2644,50 @@ export default function (pi: ExtensionAPI) {
     // Show the preserved-thinking notification on first load / resume if the
     // active model carries a preserve flag (model_select may not fire on startup).
     notifyPreservedThinkingFor(ctx.model, ctx);
-    resolveApiKey(ctx.modelRegistry).then(() => {
-      // Pre-fetch quota eagerly: with a Neuralwatt model selected the line
-      // renders it as soon as it lands (visibility no longer waits for the
-      // first turn), and on another provider it stays cached for a switch.
-      if (config.quota !== "off") {
-        // .catch: the session may be disposed (runner invalidated without a
-        // session_shutdown event) before this lands, making ctx stale — swallow
-        // instead of crashing pi with an unhandled rejection.
-        fetchQuota(cachedApiKey || "", signal).then((quota) => {
-          if (quota && !signal.aborted) {
-            cachedQuota = quota;
-            updateEnergyStatus(ctx);
-          }
-        }).catch(() => {});
-        refreshFlexPricingMeasurement(cachedApiKey || "", signal);
-      }
-      revalidateModels(cachedApiKey, embeddedModels, signal).then((freshBase) => {
+    // Fire-and-forget: never await network here — startup must not block on the
+    // provider API. Nothing is awaited and every rejection is swallowed (the
+    // session may also be disposed before a result lands, making ctx stale).
+    const hasUI = ctx.hasUI === true;
+    const apiKeyReady = resolveApiKey(ctx.modelRegistry).then(() => cachedApiKey);
+    // Pre-fetch quota eagerly: with a Neuralwatt model selected the line
+    // renders it as soon as it lands (visibility no longer waits for the
+    // first turn), and on another provider it stays cached for a switch.
+    void apiKeyReady
+      .then((apiKey) => (apiKey && config.quota !== "off" ? syncAccountAtStartup(apiKey, hasUI, signal) : null))
+      .then((account) => {
+        if (!account || signal.aborted) return;
+        if (typeof account.flexMultiplier === "number") {
+          measuredFlexMultiplier = account.flexMultiplier;
+          refreshLiveFlexBadge(); // badge may now show the measured discount
+        }
+        if (account.quota) {
+          cachedQuota = account.quota;
+          updateEnergyStatus(ctx);
+        }
+      })
+      .catch(() => { /* quota stays empty until the first turn settles */ });
+    void apiKeyReady
+      .then((apiKey) => revalidateModels(apiKey, embeddedModels, signal))
+      .then((freshBase) => {
         if (freshBase && !signal.aborted) {
           pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(freshBase, customModels, patches, config.modelOverrides)));
         }
-      }).catch(() => {});
-    }).catch(() => {});
+      })
+      .catch(() => { /* keep serving the stale catalog */ });
   });
 
   pi.on("agent_settled", async (_event, ctx) => {
     // Fetch quota once the run has fully settled (no automatic retry, compaction,
     // or queued continuation can follow) to reflect the updated balance
-    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      const quota = await fetchQuota(cachedApiKey || "");
+    const apiKey = cachedApiKey;
+    if (apiKey && config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
+      const quota = await fetchQuota(apiKey);
       if (quota) {
         cachedQuota = quota;
+        writeAccountSnapshot(apiKey, { quota });
         updateEnergyStatus(ctx);
       }
-      refreshFlexPricingMeasurement(cachedApiKey || "");
+      refreshFlexPricingMeasurement(apiKey);
     }
   });
 
@@ -2725,12 +2852,14 @@ export default function (pi: ExtensionAPI) {
     pendingQueueSeconds = undefined;
     // If the session_start quota fetch hasn't landed yet (race), fetch now
     // so the very first turn always shows plan/allowance data.
-    if (config.quota !== "off" && !cachedQuota && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      const quota = await fetchQuota(cachedApiKey || "");
+    const apiKey = cachedApiKey;
+    if (apiKey && config.quota !== "off" && !cachedQuota && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
+      const quota = await fetchQuota(apiKey);
       if (quota) {
         cachedQuota = quota;
+        writeAccountSnapshot(apiKey, { quota });
       }
-      refreshFlexPricingMeasurement(cachedApiKey || "");
+      refreshFlexPricingMeasurement(apiKey);
     }
     updateEnergyStatus(ctx);
   });
@@ -2740,10 +2869,12 @@ export default function (pi: ExtensionAPI) {
     updateEnergyStatus(ctx);
 
     // Fetch quota if there was neuralwatt usage in the replayed tree
-    if (config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      fetchQuota(cachedApiKey || "").then((quota) => {
+    const apiKey = cachedApiKey;
+    if (apiKey && config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
+      fetchQuota(apiKey).then((quota) => {
         if (quota) {
           cachedQuota = quota;
+          writeAccountSnapshot(apiKey, { quota });
           updateEnergyStatus(ctx);
         }
       }).catch(() => {});

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Quiet startup sync: background `/v1/models` revalidation runs only with an API key, only when the disk cache is older than 1 hour (`PI_PROVIDER_SYNC_TTL_MS`, `0` = always), missing, or fetched with a different key, and only in one pi process at a time (lock file next to the cache). Failed refreshes back off for 5 minutes; sessions that skip adopt a cache refreshed by another process.
+- Never store the API key: key changes are detected via a salted sha256 fingerprint in `cache/neuralwatt-models.sync.json`. The cache file format is unchanged.
+- Startup quota/flex-usage poll: interactive sessions only, never without an API key, deduped across processes with a 2-minute snapshot in `cache/neuralwatt-account.json`; other sessions render the quota line from it. Turn-triggered quota refreshes keep their cadence, skip when no key is configured, and update the snapshot.
+- Write the model cache atomically; flatten the session_start promise chains so nothing is awaited and every rejection is swallowed.
+- Add vitest coverage for the sync policy, the session_start model sync and the startup account poll.
+
 ## 1.19.0
 
 - Discover Clef and future decision models as native pi classifiers; reuse System One auth, typed answers, usage, hooks, errors and cancellation instead of chat APIs.

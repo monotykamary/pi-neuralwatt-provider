@@ -33,6 +33,7 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 - **Energy reporting** - Displays energy consumption (⚡J/mWh/Wh/kWh) and actual billed cost ($) in a dedicated status widget below the editor, tracked per-session
 - **Quota display** - Shows subscription plan, kWh allocation, and credits remaining from your Neuralwatt account, right-aligned in the status widget
 - **Configurable display** - Energy and quota can each be shown in the below-editor widget, the built-in status bar, or turned off entirely via a config file
+- **Quiet live model sync** - Models refresh from the Neuralwatt API in the background, at most hourly and by one pi process at a time ([details](#model-sync))
 
 ## Available Models
 
@@ -162,6 +163,7 @@ pi
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `NEURALWATT_API_KEY` | No | Your Neuralwatt API key (fallback if not in auth.json) |
+| `PI_PROVIDER_SYNC_TTL_MS` | No | Model sync freshness window in ms (default `3600000`; `0` = revalidate every session start) |
 
 ## Configuration
 
@@ -379,6 +381,25 @@ After every Neuralwatt turn (in the `turn_end` handler, once the SSE tee has dra
 
 The event is only emitted for turns with Neuralwatt activity (the `pending*` state is per-request), so non-Neuralwatt turns never produce a spurious zero-cost signal. Consumers should correlate on `turnIndex` and treat a missing/`null` index defensively.
 
+## Model sync
+
+Startup never waits on the network. pi starts with the cached catalog (`~/.pi/agent/cache/neuralwatt-models.json`,
+falling back to the bundled `models.json`) and revalidates against `/v1/models` in the background — only when:
+
+- a Neuralwatt API key is configured (no key, no request),
+- the cache is older than 1 hour, missing, or was fetched with a different API key, and
+- no other pi process is already refreshing it (a `neuralwatt-models.lock` file next to the cache).
+
+So `/new`, `/reload`, `pi -p` and fan-out child agents share one cache instead of each calling the API; a
+session that skips the fetch still picks up a cache another process refreshed. A failed refresh is retried after
+5 minutes at the earliest. `PI_PROVIDER_SYNC_TTL_MS` changes the window (`0` revalidates on every session start).
+Only a hash fingerprint of the key is stored (`neuralwatt-models.sync.json`), never the key itself.
+
+The startup quota poll (`/v1/quota`, plus `/v1/usage/summary` and `/v1/usage/by-model` for the measured flex
+discount) follows the same rules with a 2-minute window: it runs only in interactive sessions (not `pi -p` or
+child agents), only with an API key and only when `quota` isn't `"off"`, and one process at a time. Its result is
+written to `~/.pi/agent/cache/neuralwatt-account.json` (tagged with the key fingerprint), so other sessions render
+the quota line from disk instead of polling. The post-turn quota refresh is unchanged and keeps that file current.
 
 ## API Documentation
 

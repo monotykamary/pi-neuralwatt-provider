@@ -6,6 +6,7 @@
     "lib": ["ES2022", "DOM"],
     "esModuleInterop": true,
     "strict": false,
+    "strictNullChecks": true,
     "skipLibCheck": true,
     "noEmit": true,
     "resolveJsonModule": true
