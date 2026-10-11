@@ -1,0 +1,39 @@
+name: Sync neuralwatt-mcr
+
+on:
+  schedule:
+    - cron: "10 2 * * *" # 09:10 Asia/Ho_Chi_Minh
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-mcr
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+
+      - name: Pull and patch upstream
+        run: npm run sync-mcr
+
+      - name: Commit and push changes
+        run: |
+          if git diff --quiet; then
+            echo "No upstream changes."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "chore: sync neuralwatt-mcr from upstream"
+          git push origin HEAD:main
