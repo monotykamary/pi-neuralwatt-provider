@@ -59,5 +59,9 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/monotykamary/pi-neuralwatt-provider.git"
   }
 }
