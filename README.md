@@ -68,7 +68,6 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Qwen3.6 35B | 262K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
 | Qwen3.6 35B (flex) | 262K | ✅ | ✅ | $0.19 | $0.02 | $0.75 |
 | Qwen3.6 35B Fast | 262K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
-| DeepSeek V4-Pro | 1.0M | ❌ | ✅ | $1.00 | $0.10 | $3.00 |
 | Kimi K2.7 Code | 262K | ✅ | ✅ | $0.95 | $0.10 | $4.00 |
 | Kimi K2.7 Code (flex) | 262K | ✅ | ✅ | $0.62 | $0.06 | $2.60 |
 | Kimi K2.7 Code Fast | 262K | ✅ | ✅ | $0.95 | $0.10 | $4.00 |
