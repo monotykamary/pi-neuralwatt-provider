@@ -5,12 +5,12 @@ on:
     - cron: "7 0 * * *" # 07:07 Asia/Ho_Chi_Minh
   workflow_dispatch:
 
-# Publishing uses npm Trusted Publishing (OIDC) bound to this workflow file, so
-# no npm token is stored. A version pushed while publishing was unavailable is
-# published by the next run that finds it missing from npm.
+# This workflow only syncs the catalog and bumps the version; publish.yml does
+# the releasing. It publishes any version npm does not have yet, so a release
+# that failed earlier goes out with the next hand-off.
 permissions:
   contents: write
-  id-token: write
+  actions: write
 
 concurrency:
   group: update-models
@@ -47,14 +47,9 @@ jobs:
           git commit -am "chore(release): v$version"
           git push origin HEAD:main
 
-      - name: Publish to npm if this version is missing
-        run: |
-          name=$(node -p "require('./package.json').name")
-          version=$(node -p "require('./package.json').version")
-          if npm view "$name@$version" version >/dev/null 2>&1; then
-            echo "$name@$version is already on npm."
-            exit 0
-          fi
-          # Trusted publishing needs npm 11.5.1 or newer.
-          npm install --global npm@latest
-          npm publish --access public --provenance
+      # Pushes made with GITHUB_TOKEN do not start other workflows, so hand the
+      # release to publish.yml explicitly.
+      - name: Hand off to publish.yml
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run publish.yml --ref main
