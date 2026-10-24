@@ -81,45 +81,6 @@
       "max": "max"
     }
   },
-  "kimi-k2.7-code": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null,
-      "max": "high"
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true,
-      "chatTemplateKwargs": {
-        "preserve_thinking": true
-      }
-    }
-  },
-  "kimi-k2.7-code-flex": {
-    "thinkingLevelMap": {
-      "minimal": null,
-      "low": "low",
-      "medium": "medium",
-      "high": "high",
-      "xhigh": null,
-      "max": "high"
-    },
-    "compat": {
-      "maxTokensField": "max_tokens",
-      "requiresReasoningContentOnAssistantMessages": true,
-      "chatTemplateKwargs": {
-        "preserve_thinking": true
-      }
-    }
-  },
-  "kimi-k2.7-code-fast": {
-    "compat": {
-      "maxTokensField": "max_tokens"
-    }
-  },
   "kimi-k3": {
     "contextWindow": 1048576,
     "maxTokens": 131072,
