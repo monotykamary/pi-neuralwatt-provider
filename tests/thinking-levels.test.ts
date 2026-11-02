@@ -13,6 +13,23 @@ const retiredGlm52 = Object.fromEntries(["glm-5.2", "glm-5.2-flex", "glm-5.2-sho
   deprecatedAt: new Date().toISOString(),
 }]));
 
+// The K2.7 patches were pruned after retirement. Keep exercising their
+// merge behavior without depending on today's expiring provider catalog.
+const retiredKimiPatches = Object.fromEntries(["kimi-k2.7-code", "kimi-k2.7-code-flex"].map(id => [id, {
+  thinkingLevelMap: { minimal: null, low: "low", medium: "medium", high: "high", xhigh: null, max: "high" },
+  compat: {
+    maxTokensField: "max_tokens",
+    requiresReasoningContentOnAssistantMessages: true,
+    chatTemplateKwargs: { preserve_thinking: true },
+  },
+}]));
+const retiredKimi = Object.fromEntries(Object.keys(retiredKimiPatches).map(id => [id, {
+  id, name: id, reasoning: true, input: ["text"],
+  cost: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+  contextWindow: 262144, maxTokens: 32768, deprecatedAt: new Date().toISOString(),
+}]));
+const retiredKimiCatalog = Object.fromEntries(buildModels([], [], retiredKimiPatches, {}, retiredKimi as any).map(model => [model.id, model]));
+
 // A GLM-5.2 model shaped exactly as the extension registers it (embedded
 // models.json base — thinkingLevelMap derived from metadata.reasoning).
 const glm52 = {
@@ -207,8 +224,15 @@ describe("GLM-5.2 family effective thinkingLevelMap", () => {
   });
 });
 
-describe("Kimi K2.7 family patch.json thinkingLevelMap", () => {
-  const patches = patchesData as Record<string, any>;
+describe("retired Kimi K2.7 family effective thinkingLevelMap", () => {
+  const patches = retiredKimiCatalog as Record<string, any>;
+
+  it("does not require retired Kimi patches in the live catalog", () => {
+    for (const id of Object.keys(retiredKimiPatches)) {
+      expect(patchesData[id]).toBeUndefined();
+      expect(modelsData.some(model => model.id === id)).toBe(false);
+    }
+  });
   const expectedMap = {
     minimal: null,
     low: "low",
@@ -470,14 +494,15 @@ describe("chatTemplateKwargs onPayload injection", () => {
 describe("patch.json chatTemplateKwargs enablement (behavioral E2E-verified)", () => {
   const patches = patchesData as Record<string, any>;
 
-  // Kimi K2.6/K2.7 reasoning variants: preserve_thinking: true
-  // (doc-backed; behavioral E2E: 0/6 → 6/6 recall)
+  // Historical Kimi K2.7 reasoning variants: preserve_thinking: true
+  // (doc-backed; behavioral E2E: 0/6 → 6/6 recall). Exercise grace-period
+  // merging using fixtures even after those models leave the live catalog.
   const kimi = ["kimi-k2.7-code", "kimi-k2.7-code-flex"];
   for (const id of kimi) {
-    it(`${id} opts into full-history via preserve_thinking: true`, () => {
-      expect(patches[id]?.compat?.chatTemplateKwargs).toEqual({ preserve_thinking: true });
+    it(`${id} retains full-history via preserve_thinking: true during its grace period`, () => {
+      expect(retiredKimiCatalog[id]?.compat?.chatTemplateKwargs).toEqual({ preserve_thinking: true });
       // Layer-A empty-scaffold stays on alongside it
-      expect(patches[id]?.compat?.requiresReasoningContentOnAssistantMessages).toBe(true);
+      expect(retiredKimiCatalog[id]?.compat?.requiresReasoningContentOnAssistantMessages).toBe(true);
     });
   }
 
