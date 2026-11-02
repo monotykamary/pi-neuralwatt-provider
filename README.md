@@ -40,10 +40,6 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Model | Context | Vision | Reasoning | Input $/M | Cache Read $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|-----------------|------------|
 | Clef Flash (classifier; preview access) | 262K | ✅ | ❌ | $0.18 | $0.02 | — |
-| DeepSeek V4 Flash | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
-| DeepSeek V4 Flash (0731 Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
-| DeepSeek V4 Flash (flex) | 1.0M | ❌ | ✅ | $0.09 | $0.02 | $0.18 |
-| DeepSeek V4 Flash (Speed) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | DeepSeek V4.1 Flash | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
 | DeepSeek V4.1 Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.01 | $0.39 |
 | DeepSeek V4.1 Flash (Speed) | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
@@ -68,6 +64,10 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Qwen3.6 35B | 262K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
 | Qwen3.6 35B (flex) | 262K | ✅ | ✅ | $0.19 | $0.02 | $0.75 |
 | Qwen3.6 35B Fast | 262K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
+| DeepSeek V4 Flash | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
+| DeepSeek V4 Flash (0731 Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
+| DeepSeek V4 Flash (flex) | 1.0M | ❌ | ✅ | $0.09 | $0.02 | $0.18 |
+| DeepSeek V4 Flash (Speed) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | — | $2.59 |

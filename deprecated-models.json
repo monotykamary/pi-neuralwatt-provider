@@ -1,1 +1,126 @@
-{}
+{
+  "deepseek-v4-flash": {
+    "id": "deepseek-v4-flash",
+    "name": "DeepSeek V4 Flash",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.028,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-02T05:50:49.755Z"
+  },
+  "deepseek-v4-flash-0731-canary": {
+    "id": "deepseek-v4-flash-0731-canary",
+    "name": "DeepSeek V4 Flash (0731 Canary)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.028,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-02T05:50:49.755Z"
+  },
+  "deepseek-v4-flash-flex": {
+    "id": "deepseek-v4-flash-flex",
+    "name": "DeepSeek V4 Flash (flex)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.091,
+      "output": 0.182,
+      "cacheRead": 0.0182,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-02T05:50:49.755Z"
+  },
+  "deepseek-v4-flash-speed": {
+    "id": "deepseek-v4-flash-speed",
+    "name": "DeepSeek V4 Flash (Speed)",
+    "reasoning": true,
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.14,
+      "output": 0.28,
+      "cacheRead": 0.028,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 393216,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": null,
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-02T05:50:49.755Z"
+  }
+}
