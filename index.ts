@@ -2229,7 +2229,7 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>, signal
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done || signal?.aborted) break;
+      if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");

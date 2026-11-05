@@ -70,6 +70,27 @@ describe("readEnergyFromTee", () => {
     }
   });
 
+  it("preserves delivered complete lines when aborted before the read continuation", async () => {
+    const abort = new AbortController();
+    let controller!: ReadableStreamDefaultController<Uint8Array>;
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(value) { controller = value; },
+      cancel() { cancelled = true; },
+    });
+    // readEnergyFromTee is now suspended on a pending reader.read().
+    const pending = readEnergyFromTee(body, abort.signal);
+    controller.enqueue(str(': energy {"energy_joules":12}\n: cost {"request_cost_usd":4}\n: energy {"energy_joules":99}'));
+    // Fulfil the read, then abort synchronously before its continuation runs.
+    abort.abort();
+    await pending;
+
+    expect(getPendingState().pendingEnergyJoules).toBe(12);
+    expect(getPendingState().pendingCostUsd).toBe(4);
+    expect(cancelled).toBe(true);
+    expect(body.locked).toBe(false);
+  });
+
   it("does not parse an already-aborted stream", async () => {
     const body = makeStream([str(': energy {"energy_joules":12}\n')]);
     await readEnergyFromTee(body, AbortSignal.abort());
