@@ -42,6 +42,41 @@ describe("readEnergyFromTee", () => {
     resetSessionState();
   });
 
+  it("aborts a stuck tee without awaiting cancellation of the other branch", async () => {
+    const abort = new AbortController();
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) { controller.enqueue(str(': energy {"energy_joules":12}\n: cost {"request_cost_usd":4}')); },
+    });
+    const [sdk, energy] = source.tee();
+    const pending = readEnergyFromTee(energy, abort.signal);
+    // Let the complete energy line arrive, but leave the cost line unfinished.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(getPendingState().pendingEnergyJoules).toBe(12);
+    abort.abort();
+    // sdk remains open: energy.cancel() itself cannot resolve until sdk cancels.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const outcome = await Promise.race([
+        pending.then(() => "settled"),
+        new Promise((resolve) => { timer = setTimeout(() => resolve("blocked"), 100); }),
+      ]);
+      expect(outcome).toBe("settled");
+      expect(energy.locked).toBe(false);
+      expect(getPendingState().pendingCostUsd).toBe(0);
+      expect(getPendingState().pendingEnergyJoules).toBe(12);
+    } finally {
+      clearTimeout(timer);
+      await sdk.cancel();
+    }
+  });
+
+  it("does not parse an already-aborted stream", async () => {
+    const body = makeStream([str(': energy {"energy_joules":12}\n')]);
+    await readEnergyFromTee(body, AbortSignal.abort());
+    expect(getPendingState().pendingEnergyJoules).toBe(0);
+    expect(body.locked).toBe(false);
+  });
+
   it("parses energy and cost from delayed SSE comment", async () => {
     const chunks = [
       str('data: {"choices":[{"delta":{"content":"hello"}}]}\n\n'),

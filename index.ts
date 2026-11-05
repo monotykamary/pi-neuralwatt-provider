@@ -88,7 +88,7 @@ import { fileURLToPath } from "node:url";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
-import type { ProviderModelConfig } from "@earendil-works/pi-coding-agent";
+import type { ExtensionContext, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { applyHostedTools, parseHostedTools, type HostedToolsConfig } from "./hosted-tools";
 import { clampThinkingLevel, streamOpenAICompletions, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
 import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
@@ -1354,20 +1354,6 @@ async function fetchQuota(apiKey: string, signal?: AbortSignal): Promise<QuotaRe
   }
 }
 
-// Refresh the measured flex multiplier in the background (fire-and-forget;
-// never blocks the turn flow). Call sites mirror the quota refresh points.
-function refreshFlexPricingMeasurement(apiKey: string, signal?: AbortSignal): void {
-  void fetchFlexPricingMultiplier(apiKey, signal)
-    .then((m) => {
-      if (m !== undefined) {
-        measuredFlexMultiplier = m;
-        refreshLiveFlexBadge(); // badge may now show the measured discount
-        writeAccountSnapshot(apiKey, { flexMultiplier: m });
-      }
-    })
-    .catch(() => { /* best-effort */ });
-}
-
 // ─── Account snapshot (quota + measured flex multiplier) ──────────────────────
 //
 // The startup account poll (/quota + /usage/summary + /usage/by-model) is
@@ -1454,7 +1440,7 @@ async function syncAccountAtStartup(apiKey: string, hasUI: boolean, signal: Abor
       fetchQuota(apiKey, signal),
       fetchFlexPricingMultiplier(apiKey, signal),
     ]);
-    if (!quota) return null;
+    if (!quota || signal.aborted) return null;
     writeAccountSnapshot(apiKey, { quota, flexMultiplier });
     fetched = true;
     return { quota, flexMultiplier };
@@ -2148,8 +2134,13 @@ export function liveFlexQueueState(): { streams: number; startedAt: number | nul
 
 // ─── SSE Comment Reader ──────────────────────────────────────────────────────
 
-export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promise<void> {
+export async function readEnergyFromTee(body: ReadableStream<Uint8Array>, signal?: AbortSignal): Promise<void> {
   const reader = body.getReader();
+  // Cancelling one tee branch may wait for the SDK branch to finish. Close our
+  // reader immediately, but never await that shared-source cancellation.
+  const abort = () => { void reader.cancel().catch(() => {}); };
+  signal?.addEventListener("abort", abort, { once: true });
+  if (signal?.aborted) abort();
   const decoder = new TextDecoder();
   let buffer = "";
 
@@ -2238,7 +2229,7 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
   try {
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done || signal?.aborted) break;
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split("\n");
@@ -2255,10 +2246,11 @@ export async function readEnergyFromTee(body: ReadableStream<Uint8Array>): Promi
   // Flush any trailing bytes in the decoder and process the final line
   const final = decoder.decode(new Uint8Array(0), { stream: false });
   const remaining = (buffer + final).trim();
-  if (remaining) {
+  if (remaining && !signal?.aborted) {
     processLine(remaining);
   }
 
+  signal?.removeEventListener("abort", abort);
   try {
     reader.releaseLock();
   } catch {
@@ -2488,7 +2480,7 @@ export function streamNeuralwatt(
     if (!response.body || !(url.includes("/chat/completions") || url.includes("/responses"))) return response;
 
     const [bodyForSdk, bodyForEnergy] = response.body.tee();
-    trackTeeReader(readEnergyFromTee(bodyForEnergy));
+    trackTeeReader(readEnergyFromTee(bodyForEnergy, streamOptions.signal));
     return new Response(bodyForSdk, {
       headers: response.headers,
       status: response.status,
@@ -2599,6 +2591,30 @@ export default function (pi: ExtensionAPI) {
   // createAgentSession() by subagent/runner extensions get their own controller
   // instead of sharing — and aborting — the parent's background revalidation.
   let revalidateAbort: AbortController | null = null;
+  let accountRefresh: Promise<void> | null = null;
+
+  // Account data is cosmetic: never put its network deadline on Pi's idle /
+  // Escape path. Share startup, turn and tree refreshes, and discard late
+  // responses from a shutdown or replaced session.
+  function refreshAccount(ctx: ExtensionContext): void {
+    const apiKey = cachedApiKey;
+    const signal = revalidateAbort?.signal;
+    if (!apiKey || !signal || signal.aborted || accountRefresh || ctx.hasUI === false || config.quota === "off") return;
+    const refresh = Promise.all([fetchQuota(apiKey, signal), fetchFlexPricingMultiplier(apiKey, signal)])
+      .then(([quota, flexMultiplier]) => {
+        if (signal.aborted) return;
+        if (quota) cachedQuota = quota;
+        if (flexMultiplier !== undefined) {
+          measuredFlexMultiplier = flexMultiplier;
+          refreshLiveFlexBadge();
+        }
+        writeAccountSnapshot(apiKey, { quota, flexMultiplier });
+        updateEnergyStatus(ctx);
+      })
+      .catch(() => { /* best-effort, including a stale UI context */ })
+      .finally(() => { if (accountRefresh === refresh) accountRefresh = null; });
+    accountRefresh = refresh;
+  }
 
   // Notify preserved-thinking state for a preserve-flag model. Computed from the
   // build pipeline (config as source of truth, not event.model.compat), deferred
@@ -2626,6 +2642,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", async (_event, ctx) => {
     revalidateAbort?.abort();
     revalidateAbort = new AbortController();
+    accountRefresh = null;
     const signal = revalidateAbort.signal;
     config = loadConfig();
     resetSessionState();
@@ -2652,8 +2669,8 @@ export default function (pi: ExtensionAPI) {
     // Pre-fetch quota eagerly: with a Neuralwatt model selected the line
     // renders it as soon as it lands (visibility no longer waits for the
     // first turn), and on another provider it stays cached for a switch.
-    void apiKeyReady
-      .then((apiKey) => (apiKey && config.quota !== "off" ? syncAccountAtStartup(apiKey, hasUI, signal) : null))
+    const startupAccount = apiKeyReady
+      .then((apiKey) => (apiKey && !signal.aborted && config.quota !== "off" ? syncAccountAtStartup(apiKey, hasUI, signal) : null))
       .then((account) => {
         if (!account || signal.aborted) return;
         if (typeof account.flexMultiplier === "number") {
@@ -2665,7 +2682,9 @@ export default function (pi: ExtensionAPI) {
           updateEnergyStatus(ctx);
         }
       })
-      .catch(() => { /* quota stays empty until the first turn settles */ });
+      .catch(() => { /* quota stays empty until the first turn settles */ })
+      .finally(() => { if (accountRefresh === startupAccount) accountRefresh = null; });
+    accountRefresh = startupAccount;
     void apiKeyReady
       .then((apiKey) => revalidateModels(apiKey, embeddedModels, signal))
       .then((freshBase) => {
@@ -2676,19 +2695,11 @@ export default function (pi: ExtensionAPI) {
       .catch(() => { /* keep serving the stale catalog */ });
   });
 
-  pi.on("agent_settled", async (_event, ctx) => {
-    // Fetch quota once the run has fully settled (no automatic retry, compaction,
-    // or queued continuation can follow) to reflect the updated balance
-    const apiKey = cachedApiKey;
-    if (apiKey && config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      const quota = await fetchQuota(apiKey);
-      if (quota) {
-        cachedQuota = quota;
-        writeAccountSnapshot(apiKey, { quota });
-        updateEnergyStatus(ctx);
-      }
-      refreshFlexPricingMeasurement(apiKey);
-    }
+  pi.on("agent_settled", (event, ctx) => {
+    // Historical Neuralwatt usage can remain while another provider is active.
+    // In particular, an aborted run must not trigger an 8s account poll.
+    if (event.aborted || ctx.signal?.aborted) return;
+    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) refreshAccount(ctx);
   });
 
   pi.on("session_shutdown", async (_event, ctx) => {
@@ -2850,16 +2861,12 @@ export default function (pi: ExtensionAPI) {
     pendingServiceTier = null;
     pendingUsage = null;
     pendingQueueSeconds = undefined;
-    // If the session_start quota fetch hasn't landed yet (race), fetch now
-    // so the very first turn always shows plan/allowance data.
-    const apiKey = cachedApiKey;
-    if (apiKey && config.quota !== "off" && !cachedQuota && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      const quota = await fetchQuota(apiKey);
-      if (quota) {
-        cachedQuota = quota;
-        writeAccountSnapshot(apiKey, { quota });
-      }
-      refreshFlexPricingMeasurement(apiKey);
+    // Retry a missing startup snapshot without delaying this turn, and share
+    // any in-flight refresh with agent_settled. Already received accounting
+    // above is committed even when the run was aborted.
+    const aborted = ctx.signal?.aborted || (event.message?.role === "assistant" && event.message.stopReason === "aborted");
+    if (!aborted && !cachedQuota && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
+      refreshAccount(ctx);
     }
     updateEnergyStatus(ctx);
   });
@@ -2868,17 +2875,8 @@ export default function (pi: ExtensionAPI) {
     replayEnergyEvents(ctx);
     updateEnergyStatus(ctx);
 
-    // Fetch quota if there was neuralwatt usage in the replayed tree
-    const apiKey = cachedApiKey;
-    if (apiKey && config.quota !== "off" && (sessionEnergyJoules > 0 || sessionCostUsd > 0)) {
-      fetchQuota(apiKey).then((quota) => {
-        if (quota) {
-          cachedQuota = quota;
-          writeAccountSnapshot(apiKey, { quota });
-          updateEnergyStatus(ctx);
-        }
-      }).catch(() => {});
-    }
+    // Tree navigation uses the same session-owned, single-flight refresh.
+    if (sessionEnergyJoules > 0 || sessionCostUsd > 0) refreshAccount(ctx);
   });
 
   // ─── /neuralwatt-settings: settings UI (mirrors pi core /settings) ──────────

@@ -17,8 +17,11 @@ const MINUTE = 60 * 1000;
 
 let home: string;
 let accountPath: string;
+let shutdown: (() => Promise<void>) | undefined;
 
-afterEach(() => {
+afterEach(async () => {
+  await shutdown?.();
+  shutdown = undefined;
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
   vi.resetModules();
@@ -86,17 +89,127 @@ async function loadExtension(opts: { hasUI?: boolean; apiKey?: string | undefine
   const apiKey = "apiKey" in opts ? opts.apiKey : KEY;
   const ctx = {
     hasUI: opts.hasUI ?? true,
+    signal: undefined as AbortSignal | undefined,
     model: { provider: "neuralwatt", id: "kimi-k3" },
     modelRegistry: { getApiKeyForProvider: async () => apiKey },
     sessionManager: { getBranch: () => opts.branch ?? [] },
     ui: { setStatus, setWidget: () => {}, notify: () => {}, theme: { fg: (_c: string, t: string) => t } },
   };
   const startSession = () => handlers.get("session_start")!({ type: "session_start" }, ctx);
+  shutdown = async () => { await handlers.get("session_shutdown")!({}, ctx); };
   const quotaShown = () => setStatus.mock.calls.some(([key, text]) => key === "neuralwatt-quota" && typeof text === "string" && text.includes("payg"));
-  return { mod, handlers, ctx, startSession, quotaShown };
+  return { mod, handlers, ctx, startSession, quotaShown, setStatus };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 50));
+
+const historicalUsage = [{ type: "custom", customType: "neuralwatt-energy", data: { energy_joules: 10, cost_usd: 0.01 } }];
+
+function stallAccountFetch() {
+  const signals: AbortSignal[] = [];
+  const fetch = vi.fn((_url: string, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+    const signal = init!.signal!;
+    signals.push(signal);
+    if (signal.aborted) reject(signal.reason);
+    else signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+  }));
+  vi.stubGlobal("fetch", fetch);
+  return { fetch, signals };
+}
+
+async function settledBeforeDeadline(work: unknown): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      Promise.resolve(work).then(() => "settled"),
+      new Promise<string>((resolve) => { timer = setTimeout(() => resolve("blocked"), 100); }),
+    ]);
+    expect(result).toBe("settled");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+describe("account refresh does not block cancellation", () => {
+  it.each(["event", "signal"])("skips an aborted %s with historical usage on another provider", async (abortSource) => {
+    setupHome();
+    writeSnapshot(30_000, { quota: quota(1) });
+    const fetch = stubFetch();
+    const ext = await loadExtension({ branch: historicalUsage });
+    ext.ctx.model.provider = "openai";
+    await ext.startSession();
+    await settle();
+    if (abortSource === "signal") ext.ctx.signal = AbortSignal.abort();
+    expect(ext.handlers.get("agent_settled")!({ aborted: abortSource === "event" }, ext.ctx)).toBeUndefined();
+    await settledBeforeDeadline(ext.handlers.get("turn_end")!({ message: { role: "assistant", stopReason: "aborted" } }, ext.ctx));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("returns immediately and shares one pending refresh across repeated settlement and tree hooks", async () => {
+    setupHome();
+    writeSnapshot(30_000, { quota: quota(1) });
+    stubFetch();
+    const ext = await loadExtension({ branch: historicalUsage });
+    await ext.startSession();
+    await settle();
+    const { fetch, signals } = stallAccountFetch();
+    expect(ext.handlers.get("agent_settled")!({}, ext.ctx)).toBeUndefined();
+    await settledBeforeDeadline(ext.handlers.get("session_tree")!({}, ext.ctx));
+    expect(ext.handlers.get("agent_settled")!({}, ext.ctx)).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(3); // quota and the two flex endpoints, not three polls
+    await shutdown!();
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+  });
+
+  it("does not await or duplicate an unfinished startup account request at turn_end", async () => {
+    setupHome();
+    const { fetch } = stallAccountFetch();
+    const ext = await loadExtension({ branch: historicalUsage });
+    await ext.startSession();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(3));
+    await settledBeforeDeadline(ext.handlers.get("turn_end")!({ message: { role: "assistant", stopReason: "stop" } }, ext.ctx));
+    expect(ext.handlers.get("agent_settled")!({}, ext.ctx)).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a missing quota in the background after startup fails", async () => {
+    setupHome();
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+    const ext = await loadExtension({ branch: historicalUsage });
+    await ext.startSession();
+    await settle();
+    const { fetch } = stallAccountFetch();
+    await settledBeforeDeadline(ext.handlers.get("turn_end")!({ message: { role: "assistant", stopReason: "stop" } }, ext.ctx));
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(ext.handlers.get("agent_settled")!({}, ext.ctx)).toBeUndefined();
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it.each(["shutdown", "restart"])("discards late responses after session %s", async (action) => {
+    setupHome();
+    writeSnapshot(30_000, { quota: quota(1) });
+    stubFetch();
+    const ext = await loadExtension({ branch: historicalUsage });
+    await ext.startSession();
+    await settle();
+    const finish: Array<() => void> = [];
+    const signals: AbortSignal[] = [];
+    vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => new Promise<Response>((resolve) => {
+      signals.push(init!.signal!);
+      finish.push(() => resolve(Response.json(url.endsWith("/quota") ? quota(999) : {})));
+    })));
+    ext.handlers.get("agent_settled")!({}, ext.ctx);
+    if (action === "shutdown") await shutdown!();
+    else { await ext.startSession(); await settle(); }
+    const callsAfterLifecycle = ext.setStatus.mock.calls.length;
+    const snapshot = fs.readFileSync(accountPath, "utf8");
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    finish.forEach((resolve) => resolve());
+    await settle();
+    expect(ext.setStatus).toHaveBeenCalledTimes(callsAfterLifecycle);
+    expect(fs.readFileSync(accountPath, "utf8")).toBe(snapshot);
+  });
+});
 
 describe("startup account poll", () => {
   it("polls once in an interactive session and writes a key-scoped snapshot", async () => {
