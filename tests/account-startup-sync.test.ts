@@ -185,6 +185,20 @@ describe("account refresh does not block cancellation", () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it("does not renew a cached snapshot when every background request fails", async () => {
+    setupHome();
+    writeSnapshot(30_000, { quota: quota(1) });
+    stubFetch();
+    const ext = await loadExtension({ branch: historicalUsage });
+    await ext.startSession();
+    await settle();
+    const snapshot = fs.readFileSync(accountPath, "utf8");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+    ext.handlers.get("agent_settled")!({}, ext.ctx);
+    await settle();
+    expect(fs.readFileSync(accountPath, "utf8")).toBe(snapshot);
+  });
+
   it.each(["shutdown", "restart"])("discards late responses after session %s", async (action) => {
     setupHome();
     writeSnapshot(30_000, { quota: quota(1) });

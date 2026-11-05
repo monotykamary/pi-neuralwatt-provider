@@ -2608,7 +2608,7 @@ export default function (pi: ExtensionAPI) {
           measuredFlexMultiplier = flexMultiplier;
           refreshLiveFlexBadge();
         }
-        writeAccountSnapshot(apiKey, { quota, flexMultiplier });
+        if (quota || flexMultiplier !== undefined) writeAccountSnapshot(apiKey, { quota, flexMultiplier });
         updateEnergyStatus(ctx);
       })
       .catch(() => { /* best-effort, including a stale UI context */ })
