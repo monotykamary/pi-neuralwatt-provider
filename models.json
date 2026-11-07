@@ -383,6 +383,41 @@
     "hostedTools": false
   },
   {
+    "id": "kimi-k3.1-pro",
+    "name": "Kimi K3.1 Pro",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 2,
+      "output": 10,
+      "cacheRead": 0.2,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": "medium",
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false
+  },
+  {
     "id": "mimo-v2.6-pro",
     "name": "MiMo-V2.6-Pro",
     "reasoning": true,
