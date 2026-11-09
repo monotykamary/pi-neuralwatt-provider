@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.19.15
+
+- Load the pi-ai compat stream runtime at the first request and the System One classifier providers at the first classify call. The provider and model catalog still register at load.
+
 ## 1.19.7
 
 - Pin Pi SDK development dependencies to 1.3.0 while retaining wildcard host peers; verify real manifest loading, lifecycle and native/bundled Pi hosts offline.
