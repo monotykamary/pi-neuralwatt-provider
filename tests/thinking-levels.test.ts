@@ -1,9 +1,14 @@
-import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
-import { buildModels, deriveThinkingLevelMap, getPendingState, resetSessionState, streamNeuralwatt } from "../index";
+import { beforeAll, describe, expect, it, beforeEach, afterEach, vi } from "vitest";
+import { buildModels, deriveThinkingLevelMap, getPendingState, loadStreamRuntime, resetSessionState, streamNeuralwatt } from "../index";
 import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/pi-ai/compat";
 import patchesData from "../patch.json" with { type: "json" };
 import modelsData from "../models.json" with { type: "json" };
 import customModelsData from "../custom-models.json" with { type: "json" };
+
+// These suites inspect the stream call synchronously, so load the request
+// runtime first (the deferred first-request path is covered in lazy-runtime).
+beforeAll(() => loadStreamRuntime());
+
 // Historical provider metadata is a fixture, not today's expiring graveyard.
 const retiredGlm52 = Object.fromEntries(["glm-5.2", "glm-5.2-flex", "glm-5.2-short", "glm-5.2-short-flex"].map(id => [id, {
   id, name: id, reasoning: true, input: ["text"],

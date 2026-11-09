@@ -1,7 +1,11 @@
-import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { __setConfigForTest, resetSessionState, streamNeuralwatt } from "../index";
+import { beforeAll, describe, expect, it, beforeEach, afterEach } from "vitest";
+import { __setConfigForTest, loadStreamRuntime, resetSessionState, streamNeuralwatt } from "../index";
 import type { NeuralwattConfig } from "../index";
 import { __streamCalls, __resetStreamCalls, __setClamp } from "@earendil-works/pi-ai/compat";
+
+// These suites inspect the stream call synchronously, so load the request
+// runtime first (the deferred first-request path is covered in lazy-runtime).
+beforeAll(() => loadStreamRuntime());
 
 const baseConfig: NeuralwattConfig = {
   energy: "widget",

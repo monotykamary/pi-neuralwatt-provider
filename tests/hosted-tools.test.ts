@@ -1,7 +1,11 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
 import { parseHostedTools, applyHostedTools } from "../hosted-tools";
-import { __setConfigForTest, buildModels, streamNeuralwatt } from "../index";
+import { __setConfigForTest, buildModels, loadStreamRuntime, streamNeuralwatt } from "../index";
 import { __resetStreamCalls, __streamCalls } from "@earendil-works/pi-ai/compat";
+
+// These suites inspect the stream call synchronously, so load the request
+// runtime first (the deferred first-request path is covered in lazy-runtime).
+beforeAll(() => loadStreamRuntime());
 
 const base = { energy: "off", quota: "off", mcr: "off", carbon: "off", glyphs: "auto", hideOnOtherProvider: true } as const;
 afterEach(() => __setConfigForTest(undefined));

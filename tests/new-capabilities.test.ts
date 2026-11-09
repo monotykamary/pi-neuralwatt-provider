@@ -1,8 +1,12 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { buildModels, makeProviderConfig, transformApiModel, streamNeuralwatt, __setConfigForTest } from "../index";
+import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
+import { buildModels, loadStreamRuntime, makeProviderConfig, transformApiModel, streamNeuralwatt, __setConfigForTest } from "../index";
 import { transformModel, cleanModelForJson } from "../scripts/update-models.js";
 import { transformContextForImageLimits } from "../transform";
 import { __resetStreamCalls, __streamCalls } from "@earendil-works/pi-ai/compat";
+
+// These suites inspect the stream call synchronously, so load the request
+// runtime first (the deferred first-request path is covered in lazy-runtime).
+beforeAll(() => loadStreamRuntime());
 
 const apiModel = {
   id: "clef-flash",

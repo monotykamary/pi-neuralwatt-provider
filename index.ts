@@ -86,11 +86,8 @@
 
 import { fileURLToPath } from "node:url";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
-import { createAssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { builtinProviders } from "@earendil-works/pi-ai/providers/all";
 import type { ExtensionContext, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { applyHostedTools, parseHostedTools, type HostedToolsConfig } from "./hosted-tools";
-import { clampThinkingLevel, streamOpenAICompletions, streamOpenAIResponses } from "@earendil-works/pi-ai/compat";
 import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
@@ -101,10 +98,51 @@ import fs from "fs";
 import path from "path";
 import { acquireModelSync, cacheChangedSinceLoad, keyFingerprint, markCacheLoaded, writeFileAtomic } from "./sync-policy";
 
-// Use a host-whitelisted entrypoint: pi's jiti aliases do not resolve arbitrary
-// pi-ai/api subpaths. The built-in provider dispatches the same System One wire
-// adapter with our model, endpoint, credentials and request hooks unchanged.
-const classifySystemOne = builtinProviders().find(provider => provider.id === "typesafe")!.classify!;
+// ─── Lazy request runtime ─────────────────────────────────────────────────────
+//
+// Registration needs only the model catalog, so loading the extension must not
+// pull in pi-ai's stream implementations or the built-in provider registry.
+// Both load on the first request through a dynamic import, which Pi's loader
+// resolves like a static one: the same host-whitelisted entrypoints
+// (pi-ai/compat, pi-ai/providers/all) map to the host's own copy in every
+// install mode. Arbitrary pi-ai/api subpaths are not whitelisted, so do not
+// import them.
+
+type PiAiCompat = typeof import("@earendil-works/pi-ai/compat");
+type SystemOneClassify = NonNullable<
+  ReturnType<typeof import("@earendil-works/pi-ai/providers/all").builtinProviders>[number]["classify"]
+>;
+
+let streamRuntime: PiAiCompat | undefined;
+let streamRuntimeLoad: Promise<PiAiCompat> | undefined;
+
+/** Load pi-ai's stream implementations once; a failed load is retried on the next request. */
+export function loadStreamRuntime(): Promise<PiAiCompat> {
+  streamRuntimeLoad ??= import("@earendil-works/pi-ai/compat").then(
+    (runtime) => (streamRuntime = runtime),
+    (error) => {
+      streamRuntimeLoad = undefined;
+      throw error;
+    },
+  );
+  return streamRuntimeLoad;
+}
+
+let systemOneClassifyLoad: Promise<SystemOneClassify> | undefined;
+
+// The built-in TypeSafe provider dispatches the same System One wire adapter
+// with our model, endpoint, credentials and request hooks unchanged. Building
+// the provider registry is first-classify work, not startup work.
+function classifySystemOne(...args: Parameters<SystemOneClassify>): ReturnType<SystemOneClassify> {
+  systemOneClassifyLoad ??= import("@earendil-works/pi-ai/providers/all").then(
+    ({ builtinProviders }) => builtinProviders().find(provider => provider.id === "typesafe")!.classify!,
+    (error) => {
+      systemOneClassifyLoad = undefined;
+      throw error;
+    },
+  );
+  return systemOneClassifyLoad.then(classify => classify(...args));
+}
 
 // ─── Display Configuration ────────────────────────────────────────────────────
 
@@ -2275,19 +2313,81 @@ export function wrapStreamPassthrough(
   inner: AssistantMessageEventStream,
   onSettled?: () => void,
 ): AssistantMessageEventStream {
-  const out = createAssistantMessageEventStream();
-  (async () => {
-    try {
-      for await (const event of inner) {
-        out.push(event as any);
-      }
-    } catch {
-      // Inner stream failure mid-iteration: end downstream with whatever it saw
+  const out = new ForwardingEventStream();
+  void forwardEvents(out, inner, onSettled);
+  return out as unknown as AssistantMessageEventStream;
+}
+
+/**
+ * Assistant-message event stream with pi-ai's EventStream semantics: a FIFO
+ * queue, push/end/result and async iteration, where a `done` or `error` event
+ * settles result(). It lets streamNeuralwatt return a stream synchronously
+ * before pi-ai's stream implementations have loaded. Every response it carries
+ * comes from a pi-ai stream, which already sets the message's durationMs.
+ */
+class ForwardingEventStream {
+  private readonly queue: any[] = [];
+  private readonly waiting: Array<(next: IteratorResult<any, undefined>) => void> = [];
+  private done = false;
+  private readonly finalResult: Promise<any>;
+  private resolveFinalResult!: (message: any) => void;
+
+  constructor() {
+    this.finalResult = new Promise((resolve) => {
+      this.resolveFinalResult = resolve;
+    });
+  }
+
+  push(event: any): void {
+    if (this.done) return;
+    if (event?.type === "done" || event?.type === "error") {
+      this.done = true;
+      this.resolveFinalResult(event.type === "done" ? event.message : event.error);
     }
-    out.end();
-    onSettled?.();
-  })();
-  return out as AssistantMessageEventStream;
+    const waiter = this.waiting.shift();
+    if (waiter) waiter({ value: event, done: false });
+    else this.queue.push(event);
+  }
+
+  end(result?: any): void {
+    this.done = true;
+    if (result !== undefined) this.resolveFinalResult(result);
+    for (const waiter of this.waiting.splice(0)) waiter({ value: undefined, done: true });
+  }
+
+  result(): Promise<any> {
+    return this.finalResult;
+  }
+
+  async *[Symbol.asyncIterator](): AsyncGenerator<any, void, unknown> {
+    while (true) {
+      if (this.queue.length > 0) {
+        yield this.queue.shift();
+      } else if (this.done) {
+        return;
+      } else {
+        const next = await new Promise<IteratorResult<any, undefined>>((resolve) => this.waiting.push(resolve));
+        if (next.done) return;
+        yield next.value;
+      }
+    }
+  }
+}
+
+async function forwardEvents(
+  out: ForwardingEventStream,
+  inner: AsyncIterable<unknown>,
+  onSettled?: () => void,
+): Promise<void> {
+  try {
+    for await (const event of inner) {
+      out.push(event);
+    }
+  } catch {
+    // Inner stream failure mid-iteration: end downstream with whatever it saw
+  }
+  out.end();
+  onSettled?.();
 }
 
 // A turn whose billed (energy-derived) cost diverges from the token list
@@ -2408,6 +2508,63 @@ export function streamNeuralwatt(
     );
   }
 
+  // The flex queue badge comes up when a -flex stream starts and clears when
+  // it settles, so it also covers the first request's runtime load.
+  const isFlexModel = String(model.id).endsWith("-flex");
+  const runtime = streamRuntime;
+  if (runtime) {
+    const inner = startNeuralwattStream(runtime, apiKey, model, context, options);
+    if (!isFlexModel) return inner;
+    markLiveFlexStream();
+    return wrapStreamPassthrough(inner, stopLiveFlexStream);
+  }
+
+  // First request: load pi-ai's stream implementations behind a stream that is
+  // returned now. A failed load ends it with an error event, as Pi's own lazy
+  // providers do.
+  const startedAt = Date.now();
+  const out = new ForwardingEventStream();
+  if (isFlexModel) markLiveFlexStream();
+  const onSettled = isFlexModel ? stopLiveFlexStream : undefined;
+  loadStreamRuntime()
+    .then((loaded) => startNeuralwattStream(loaded, apiKey, model, context, options))
+    .then(
+      (inner) => forwardEvents(out, inner, onSettled),
+      (error) => {
+        const message = {
+          role: "assistant",
+          content: [],
+          api: model.api,
+          provider: model.provider,
+          model: model.id,
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "error",
+          errorMessage: error instanceof Error ? error.message : String(error),
+          timestamp: startedAt,
+        };
+        out.push({ type: "error", reason: "error", error: message });
+        out.end(message);
+        onSettled?.();
+      },
+    );
+  return out as unknown as AssistantMessageEventStream;
+}
+
+function startNeuralwattStream(
+  runtime: PiAiCompat,
+  apiKey: string,
+  model: any,
+  context: any,
+  options?: SimpleStreamOptions,
+): AssistantMessageEventStream {
+  const { clampThinkingLevel, streamOpenAICompletions, streamOpenAIResponses } = runtime;
   const transformedContext = transformContextForImageLimits(context, model.vision);
 
   // API surface selection. Default chat-completions; opt into the staged
@@ -2534,13 +2691,7 @@ export function streamNeuralwatt(
   // session totals, and /stats stay token-priced. The billed (energy-derived,
   // flex-discounted) amount is widget-only (sessionCostUsd); turn_end records
   // it on the energy entry next to a list_cost_usd audit figure.
-  //
-  // The flex queue badge lifecycle still hangs off a stream wrapper: the
-  // ticker comes up when a -flex stream starts and clears when it settles.
-  const isFlexModel = neuralwattModel.id.endsWith("-flex");
-  if (!isFlexModel) return inner;
-  markLiveFlexStream();
-  return wrapStreamPassthrough(inner, stopLiveFlexStream);
+  return inner;
 }
 
 // ─── Extension Entry Point ────────────────────────────────────────────────────
