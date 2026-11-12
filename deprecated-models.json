@@ -122,5 +122,104 @@
     },
     "hostedTools": false,
     "deprecatedAt": "2026-11-02T05:50:49.755Z"
+  },
+  "kimi-k3": {
+    "id": "kimi-k3",
+    "name": "Kimi K3",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 3,
+      "output": 15,
+      "cacheRead": 0.3,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-12T06:59:59.338Z"
+  },
+  "kimi-k3-flex": {
+    "id": "kimi-k3-flex",
+    "name": "Kimi K3 (flex)",
+    "reasoning": true,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 1.95,
+      "output": 9.75,
+      "cacheRead": 0.195,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "thinkingLevelMap": {
+      "off": "none",
+      "minimal": null,
+      "low": "low",
+      "medium": null,
+      "high": "high",
+      "xhigh": null,
+      "max": "max"
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-12T06:59:59.338Z"
+  },
+  "kimi-k3-fast": {
+    "id": "kimi-k3-fast",
+    "name": "Kimi K3 Fast",
+    "reasoning": false,
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 3,
+      "output": 15,
+      "cacheRead": 0.3,
+      "cacheWrite": 0
+    },
+    "contextWindow": 1048560,
+    "maxTokens": 1048560,
+    "compat": {
+      "supportsDeveloperRole": false,
+      "supportsReasoningEffort": true
+    },
+    "vision": {
+      "maxImagesPerTurn": 20,
+      "maxImagesPerRequest": 200
+    },
+    "hostedTools": false,
+    "deprecatedAt": "2026-11-12T06:59:59.338Z"
   }
 }
