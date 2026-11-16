@@ -63,10 +63,6 @@ Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming che
 | Qwen3.6 35B | 262K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
 | Qwen3.6 35B (flex) | 262K | ✅ | ✅ | $0.19 | $0.02 | $0.75 |
 | Qwen3.6 35B Fast | 262K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
-| DeepSeek V4 Flash | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
-| DeepSeek V4 Flash (0731 Canary) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
-| DeepSeek V4 Flash (flex) | 1.0M | ❌ | ✅ | $0.09 | $0.02 | $0.18 |
-| DeepSeek V4 Flash (Speed) | 1.0M | ❌ | ✅ | $0.14 | $0.03 | $0.28 |
 | Kimi K3 | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |
 | Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |

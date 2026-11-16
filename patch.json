@@ -1,33 +1,4 @@
 {
-  "deepseek-v4-flash": {
-    "thinkingLevelMap": {
-      "off": "none",
-      "minimal": null,
-      "low": "low",
-      "medium": "high",
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    },
-    "compat": {
-      "requiresReasoningContentOnAssistantMessages": true
-    }
-  },
-  "deepseek-v4-flash-0731-canary": {
-    "thinkingLevelMap": {
-      "off": "none",
-      "minimal": null,
-      "low": "low",
-      "medium": "high",
-      "high": "high",
-      "xhigh": null,
-      "max": "max"
-    },
-    "compat": {
-      "requiresReasoningContentOnAssistantMessages": true,
-      "supportsReasoningEffort": true
-    }
-  },
   "deepseek-v4.1-flash": {
     "thinkingLevelMap": {
       "off": "none",
