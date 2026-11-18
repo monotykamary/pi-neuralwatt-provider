@@ -3,6 +3,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// Pin the embedded metadata used to repair pre-upgrade cache entries. Real
+// catalog limits can change independently of the refresh/migration behavior.
+vi.mock("../models.json", () => ({ default: [
+  { id: "clef-flash", name: "Clef Flash", type: "classifier", api: "typesafe-system-one", input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, contextWindow: 262128 },
+  { id: "kimi-k3", name: "Kimi", reasoning: true, input: ["text", "image"], cost: { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 0 }, contextWindow: 1048576, maxTokens: 131072, vision: { maxImagesPerTurn: 20, maxImagesPerRequest: 200 } },
+] }));
+vi.mock("../patch.json", () => ({ default: {} }));
+vi.mock("../custom-models.json", () => ({ default: [] }));
+
 let home: string;
 afterEach(() => {
   vi.unstubAllEnvs(); vi.unstubAllGlobals(); vi.resetModules();

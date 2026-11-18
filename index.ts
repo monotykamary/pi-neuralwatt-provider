@@ -97,6 +97,7 @@ import { transformContextForImageLimits } from "./transform";
 import fs from "fs";
 import path from "path";
 import { acquireModelSync, cacheChangedSinceLoad, keyFingerprint, markCacheLoaded, writeFileAtomic } from "./sync-policy";
+import { loadSettings, settingsObjectAt, updateSettings } from "./settings-file";
 
 // ─── Lazy request runtime ─────────────────────────────────────────────────────
 //
@@ -280,32 +281,24 @@ function parseBaseUrl(value: unknown): string | undefined {
 
 const DEFAULT_CONFIG: NeuralwattConfig = { energy: "widget", quota: "widget", mcr: "widget", carbon: "widget", hideOnOtherProvider: true, api: "chat-completions", glyphs: "auto" };
 
+function parseConfig(raw: Record<string, unknown>): NeuralwattConfig {
+  return {
+    energy: parseDisplayMode(raw.energy, "widget"),
+    quota: parseDisplayMode(raw.quota, "widget"),
+    mcr: parseDisplayMode(raw.mcr, "widget"),
+    carbon: parseDisplayMode(raw.carbon, "widget"),
+    hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : true,
+    baseUrl: parseBaseUrl(raw.baseUrl),
+    modelOverrides: parseModelOverrides(raw.modelOverrides),
+    hostedTools: parseHostedTools(raw.hostedTools),
+    api: raw.api === "responses" ? "responses" : "chat-completions",
+    storeResponses: typeof raw.storeResponses === "boolean" ? raw.storeResponses : true,
+    glyphs: parseGlyphMode(raw.glyphs, "auto"),
+  };
+}
+
 function loadConfig(): NeuralwattConfig {
-  try {
-    const raw = JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-    return {
-      energy: parseDisplayMode(raw.energy, "widget"),
-      quota: parseDisplayMode(raw.quota, "widget"),
-      mcr: parseDisplayMode(raw.mcr, "widget"),
-      carbon: parseDisplayMode(raw.carbon, "widget"),
-      hideOnOtherProvider: typeof raw.hideOnOtherProvider === "boolean" ? raw.hideOnOtherProvider : true,
-      baseUrl: parseBaseUrl(raw.baseUrl),
-      modelOverrides: parseModelOverrides(raw.modelOverrides),
-      hostedTools: parseHostedTools(raw.hostedTools),
-      api: raw.api === "responses" ? "responses" : "chat-completions",
-      storeResponses: typeof raw.storeResponses === "boolean" ? raw.storeResponses : true,
-      glyphs: parseGlyphMode(raw.glyphs, "auto"),
-    };
-  } catch {
-    // Config file missing or invalid — populate with defaults so the user can discover it
-    try {
-      fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-      fs.writeFileSync(CONFIG_PATH, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
-    } catch {
-      // Write failure is non-fatal — defaults still work in memory
-    }
-    return { ...DEFAULT_CONFIG };
-  }
+  return parseConfig(loadSettings(CONFIG_PATH, DEFAULT_CONFIG));
 }
 
 // Validate user-supplied modelOverrides from the config file. Non-object / non-string
@@ -342,25 +335,8 @@ export function __setConfigForTest(override: NeuralwattConfig | undefined): void
   config = override ?? loadConfig();
 }
 
-// Read-modify-write the raw config JSON without parsing/validating, so unknown
-// fields a user added (or other modelOverride fields) survive a settings-UI write.
-// `loadConfig()` (validated) is still called after writing to refresh the in-memory
-// `config` the runtime uses.
-function readRawNeuralwattConfig(): Record<string, any> {
-  try {
-    return JSON.parse(fs.readFileSync(CONFIG_PATH, "utf8"));
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
-}
-
-function writeRawNeuralwattConfig(raw: Record<string, any>): void {
-  try {
-    fs.mkdirSync(path.dirname(CONFIG_PATH), { recursive: true });
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(raw, null, 2) + "\n");
-  } catch {
-    // Write failure is non-fatal — the in-memory refresh still applies.
-  }
+function saveConfig(mutate: (raw: Record<string, unknown>) => void): void {
+  config = parseConfig(updateSettings(CONFIG_PATH, DEFAULT_CONFIG, mutate));
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -3050,6 +3026,34 @@ export default function (pi: ExtensionAPI) {
     return out;
   }
 
+  function applySettings(ctx: ExtensionContext, mutate: (raw: Record<string, unknown>) => void): boolean {
+    try {
+      saveConfig(mutate);
+      return true;
+    } catch (error) {
+      ctx.ui.notify(`Could not save Neuralwatt settings: ${error instanceof Error ? error.message : String(error)}`, "error");
+      return false;
+    }
+  }
+
+  function applyPreserveSetting(
+    ctx: ExtensionContext,
+    entry: ReturnType<typeof collectPreserveState>[number],
+    preservedOn: boolean,
+  ): boolean {
+    const saved = applySettings(ctx, (raw) => {
+      const overrides = settingsObjectAt(raw, "modelOverrides");
+      const override = settingsObjectAt(overrides, entry.id);
+      const compat = settingsObjectAt(override, "compat");
+      settingsObjectAt(compat, "chatTemplateKwargs")[entry.flag] = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
+    });
+    if (!saved) return false;
+    _staleModelsCache = null;
+    pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(loadStaleModels(embeddedModels), customModels, patches, config.modelOverrides)));
+    ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} — takes effect now.`, "info");
+    return true;
+  }
+
   pi.registerCommand("neuralwatt-settings", {
     description: "Configure Neuralwatt: preserved thinking per model + energy/quota/MCR/carbon display",
     async handler(_args, ctx) {
@@ -3088,30 +3092,11 @@ export default function (pi: ExtensionAPI) {
           if (!entry) return;
           const v = await ctx.ui.select(entry.name, ["Preserve Thinking", "Clear Thinking"]);
           if (v === undefined) return;
-          const preservedOn = v === "Preserve Thinking";
-          const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
-          const raw = readRawNeuralwattConfig();
-          const overrides = raw.modelOverrides ?? (raw.modelOverrides = {});
-          const ov = overrides[entry.id] ?? (overrides[entry.id] = {});
-          const compat = ov.compat ?? (ov.compat = {});
-          const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
-          kwargs[entry.flag] = flagValue;
-          writeRawNeuralwattConfig(raw);
-          config = loadConfig();
-          _staleModelsCache = null;
-          pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(loadStaleModels(embeddedModels), customModels, patches, config.modelOverrides)));
-          ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} \u2014 takes effect now.`, "info");
+          if (!applyPreserveSetting(ctx, entry, v === "Preserve Thinking")) return;
         } else {
           const v = await ctx.ui.select(item.label, item.values);
           if (v === undefined) return;
-          const raw = readRawNeuralwattConfig();
-          if (item.id === "hideOnOtherProvider") {
-            raw.hideOnOtherProvider = v === "true";
-          } else {
-            raw[item.id] = v;
-          }
-          writeRawNeuralwattConfig(raw);
-          config = loadConfig();
+          if (!applySettings(ctx, (raw) => { raw[item.id] = item.id === "hideOnOtherProvider" ? v === "true" : v; })) return;
           updateEnergyStatus(ctx);
           ctx.ui.notify(`${item.label} set to ${v}.`, "info");
         }
@@ -3154,19 +3139,7 @@ export default function (pi: ExtensionAPI) {
                   const modelId = id.slice("preserve:".length);
                   const entry = fresh.find((p) => p.id === modelId);
                   if (!entry) return;
-                  const preservedOn = newValue === "Preserve Thinking";
-                  const flagValue = entry.flag === "clear_thinking" ? !preservedOn : preservedOn;
-                  const raw = readRawNeuralwattConfig();
-                  const overrides = raw.modelOverrides ?? (raw.modelOverrides = {});
-                  const ov = overrides[modelId] ?? (overrides[modelId] = {});
-                  const compat = ov.compat ?? (ov.compat = {});
-                  const kwargs = compat.chatTemplateKwargs ?? (compat.chatTemplateKwargs = {});
-                  kwargs[entry.flag] = flagValue;
-                  writeRawNeuralwattConfig(raw);
-                  config = loadConfig();
-                  _staleModelsCache = null;
-                  pi.registerProvider("neuralwatt", makeProviderConfig(buildModels(loadStaleModels(embeddedModels), customModels, patches, config.modelOverrides)));
-                  ctx.ui.notify(`Preserved thinking ${preservedOn ? "on" : "off"} for ${entry.name} — takes effect now.`, "info");
+                  applyPreserveSetting(ctx, entry, newValue === "Preserve Thinking");
                 },
                 () => subDone(),
                 { enableSearch: true },
@@ -3228,24 +3201,10 @@ export default function (pi: ExtensionAPI) {
           Math.min(items.length + 2, 15),
           getSettingsListTheme(),
           (id: string, newValue: string) => {
-            if (id === "energy" || id === "quota" || id === "mcr" || id === "carbon") {
-              const raw = readRawNeuralwattConfig();
-              raw[id] = newValue;
-              writeRawNeuralwattConfig(raw);
-              config = loadConfig();
-              updateEnergyStatus(ctx);
-            } else if (id === "hideOnOtherProvider") {
-              const raw = readRawNeuralwattConfig();
-              raw.hideOnOtherProvider = newValue === "true";
-              writeRawNeuralwattConfig(raw);
-              config = loadConfig();
-              updateEnergyStatus(ctx);
-            } else if (id === "glyphs") {
-              const raw = readRawNeuralwattConfig();
-              raw.glyphs = newValue;
-              writeRawNeuralwattConfig(raw);
-              config = loadConfig();
-              updateEnergyStatus(ctx);
+            if (id === "energy" || id === "quota" || id === "mcr" || id === "carbon" || id === "hideOnOtherProvider" || id === "glyphs") {
+              if (applySettings(ctx, (raw) => { raw[id] = id === "hideOnOtherProvider" ? newValue === "true" : newValue; })) {
+                updateEnergyStatus(ctx);
+              }
             }
           },
           () => done(undefined),
