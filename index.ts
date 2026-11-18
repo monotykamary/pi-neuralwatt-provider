@@ -88,7 +88,8 @@ import { fileURLToPath } from "node:url";
 import type { SimpleStreamOptions, AssistantMessageEventStream } from "@earendil-works/pi-ai/compat";
 import type { ExtensionContext, ProviderModelConfig } from "@earendil-works/pi-coding-agent";
 import { applyHostedTools, parseHostedTools, type HostedToolsConfig } from "./hosted-tools";
-import { getAgentDir, type ExtensionAPI, type ModelRegistry } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ModelRegistry } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, loadPiAiCompat, loadPiAgent, loadPiProviders, loadPiTui, packageRoot } from "./pi-host";
 import modelsData from "./models.json" with { type: "json" };
 import customModelsData from "./custom-models.json" with { type: "json" };
 import patchesData from "./patch.json" with { type: "json" };
@@ -119,7 +120,7 @@ let streamRuntimeLoad: Promise<PiAiCompat> | undefined;
 
 /** Load pi-ai's stream implementations once; a failed load is retried on the next request. */
 export function loadStreamRuntime(): Promise<PiAiCompat> {
-  streamRuntimeLoad ??= import("@earendil-works/pi-ai/compat").then(
+  streamRuntimeLoad ??= loadPiAiCompat().then(
     (runtime) => (streamRuntime = runtime),
     (error) => {
       streamRuntimeLoad = undefined;
@@ -135,7 +136,7 @@ let systemOneClassifyLoad: Promise<SystemOneClassify> | undefined;
 // with our model, endpoint, credentials and request hooks unchanged. Building
 // the provider registry is first-classify work, not startup work.
 function classifySystemOne(...args: Parameters<SystemOneClassify>): ReturnType<SystemOneClassify> {
-  systemOneClassifyLoad ??= import("@earendil-works/pi-ai/providers/all").then(
+  systemOneClassifyLoad ??= loadPiProviders().then(
     ({ builtinProviders }) => builtinProviders().find(provider => provider.id === "typesafe")!.classify!,
     (error) => {
       systemOneClassifyLoad = undefined;
@@ -2374,7 +2375,7 @@ export const BILLING_LIST_MISMATCH_THRESHOLD_USD = 0.01;
 /** Write a gitignored temp script under scripts/, next to this file. Never throws. */
 export function appendTmpScript(filename: string, contents: string): void {
   try {
-    const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), "scripts");
+    const dir = path.join(fileURLToPath(packageRoot), "scripts");
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(path.join(dir, filename), contents);
   } catch {
@@ -3103,8 +3104,8 @@ export default function (pi: ExtensionAPI) {
         ctx.ui.notify("Run /neuralwatt-settings again for more.", "info");
         return;
       }
-      const { SettingsList, Container } = await import("@earendil-works/pi-tui");
-      const { getSettingsListTheme, DynamicBorder } = await import("@earendil-works/pi-coding-agent");
+      const { SettingsList, Container } = await loadPiTui();
+      const { getSettingsListTheme, DynamicBorder } = await loadPiAgent();
 
       await ctx.ui.custom((_tui, theme, _kb, done) => {
         const border = () => new DynamicBorder((s: string) => theme.fg("border", s));

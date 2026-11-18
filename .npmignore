@@ -1,5 +1,8 @@
 # Local pi-agent state — never publish
 .pi/
 
+# Compiled artifacts are added only to the release staging tree.
+/dist/
+
 # Auto-generated billing probe scripts (runtime diagnostics when billed amount diverges) — dev artifacts, never ship
 scripts/neuralwatt-billing-*.js

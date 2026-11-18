@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const root = resolve(process.env.PI1_PROVIDER_PACKAGE ?? resolve(dirname(fileURLToPath(import.meta.url)), '..'));
+const direct = process.env.PI1_PROVIDER_DIRECT === '1';
+const compiled = process.env.PI1_PROVIDER_COMPILED === '1';
 const home = await mkdtemp(join(tmpdir(), 'pi-provider-compat-'));
 const previousHome = process.env.PI_CODING_AGENT_DIR;
 const previousFetch = globalThis.fetch;
@@ -26,14 +28,40 @@ try {
     if (manifest.peerDependencies?.[name] !== undefined) assert.equal(manifest.peerDependencies[name], '*');
     if (name !== 'typebox' && manifest.devDependencies?.[name]) assert.equal(manifest.devDependencies[name], '1.5.0');
   }
-  const settingsManager = SettingsManager.inMemory({ packages: [root], compaction: { enabled: false }, retry: { enabled: false } });
+  const paths = manifest.pi.extensions.map(entry => resolve(root, entry));
+  if (compiled) {
+    assert.equal(manifest.main, './dist/index.js');
+    assert.equal(manifest.types, 'index.ts');
+    assert.deepEqual(manifest.pi.extensions, ['./dist/index.js', './dist/neuralwatt-mcr.js']);
+  }
+  const settingsManager = SettingsManager.inMemory({ packages: direct ? [] : [root], compaction: { enabled: false }, retry: { enabled: false } });
   const resourceLoader = new DefaultResourceLoader({ cwd: home, agentDir: home, settingsManager,
+    additionalExtensionPaths: direct ? paths : undefined,
     noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true });
   await resourceLoader.reload();
   const loaded = resourceLoader.getExtensions();
   assert.deepEqual(loaded.errors, []);
   assert.deepEqual(loaded.warnings ?? [], []);
-  assert.equal(loaded.extensions.length, manifest.pi.extensions.length, 'all manifest entrypoints load');
+  assert.deepEqual(loaded.extensions.map(extension => extension.resolvedPath), paths, 'each selected entrypoint loads exactly once');
+  const [provider, mcr] = loaded.extensions;
+  assert.equal(provider.commands.size, 1);
+  assert(provider.commands.has('neuralwatt-settings'));
+  assert.equal(mcr.handlers.get('context')?.length, 1, 'one MCR context-drop handler');
+  assert.equal(mcr.handlers.get('after_provider_response')?.length, 1, 'one MCR telemetry handler');
+  assert.equal(mcr.handlers.get('before_provider_headers')?.length, 1, 'one agent request header hook');
+  assert.equal(mcr.tools.has('mcr_lookup'), false, 'MCR tool is not always-on');
+  const full = loaded.runtime.pendingProviderRegistrations.filter(({ config }) => config.models);
+  assert.equal(full.length, 2, 'both extensions register the full provider as before');
+  assert.equal(loaded.runtime.pendingProviderRegistrations.length, 3, 'one intercepted vendor registration');
+  if (compiled) {
+    const runtime = await import(pathToFileURL(join(root, 'dist/runtime/index.js')).href);
+    const bridge = await import(pathToFileURL(join(root, 'dist/runtime/pi-host.js')).href);
+    assert.equal(bridge.getAgentDir, sdk.getAgentDir, 'native runtime uses the executing Pi host');
+    for (const { config } of full) {
+      assert.equal(config.streamSimple, runtime.streamNeuralwatt, 'both factories use the same native runtime');
+      assert.equal(config.classifiers['typesafe-system-one'].classify, full[0].config.classifiers['typesafe-system-one'].classify);
+    }
+  }
   // Endpoint/header-only re-registration (e.g. MCR) retains the prior catalog.
   const registrations = [...loaded.runtime.pendingProviderRegistrations.reduce((byName, { name, config }) =>
     byName.set(name, { name, config: { ...byName.get(name)?.config, ...config } }), new Map()).values()];
@@ -82,6 +110,11 @@ try {
       classifierChecks++;
     }
     const chatModels = modelRuntime.getModels(name);
+    const longModel = chatModels.find(m => m.id.endsWith('-long'));
+    assert(longModel, 'MCR models survive registration');
+    await session.extensionRunner.emit({ type: 'model_select', model: longModel });
+    assert(mcr.tools.has('mcr_lookup'), 'activating an MCR model registers the real deferred tool');
+    assert.equal(mcr.tools.size, 1, 'MCR registers one tool');
     const model = chatModels.find(m => m.api === 'openai-completions') ?? chatModels[0];
     assert(model, 'a chat model is available for offline transport checks');
     const user = { role: 'user', content: 'hello', timestamp: 1 };
@@ -126,7 +159,7 @@ try {
   }
   await session.extensionRunner.emit({ type: 'session_shutdown', reason: 'quit' });
   assert.deepEqual(errors, []);
-  console.log(JSON.stringify({ repo: manifest.name, pi: VERSION, hostEntry, extensions: loaded.extensions.length, tools: tools.size, models: modelCount, streamChecks, classifierChecks, lifecycle: 'passed' }));
+  console.log(JSON.stringify({ repo: manifest.name, pi: VERSION, hostEntry, mode: direct ? 'manual' : 'package', compiled, extensions: loaded.extensions.length, registrations: 3, tools: mcr.tools.size, models: modelCount, streamChecks, classifierChecks, lifecycle: 'passed' }));
 } finally {
   session?.dispose(); globalThis.fetch = previousFetch;
   if (previousHome === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previousHome;

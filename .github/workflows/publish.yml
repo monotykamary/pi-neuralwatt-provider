@@ -47,6 +47,8 @@ jobs:
           node-version: 24
 
       - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
 
       - name: Find versions npm does not have
         id: release
@@ -87,8 +89,7 @@ jobs:
       - name: Pack
         if: steps.release.outputs.mode != 'skip'
         run: |
-          bun run --if-present prepublishOnly
-          bun pm pack --destination "$RUNNER_TEMP/pack"
+          bun run pack:release "$RUNNER_TEMP/pack"
 
       - name: Publish
         if: steps.release.outputs.mode != 'skip'

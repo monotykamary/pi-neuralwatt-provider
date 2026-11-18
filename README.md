@@ -13,8 +13,10 @@ _Kimi, GLM, Qwen, DeepSeek — with real-time ⚡ energy/cost per session for [p
 
 ## Pi 1.0 compatibility
 
-Tested with Pi **1.0.0** and the **1.0.2 bundled host**. Host-provided packages remain wildcard peers; development uses exact SDK pins.
+Tested with Pi **1.5.0**, including its bundled Node host. Host-provided packages remain wildcard peers; development uses exact SDK pins.
 Run `bun run test:pi` for offline manifest, catalog, lifecycle and streaming checks. To test an installed host, set `PI1_HOST_PACKAGE` to its package directory; add `PI1_HOST_ENTRY=bundle` for its bundled CLI runtime. The probe stubs all network requests and never uses a live provider endpoint.
+
+A git install or local checkout uses the TypeScript entrypoints without a build. `bun run pack:release [output-directory]` builds the npm release tarball with two compiled entrypoints and a shared runtime; it does not modify the checkout manifest or publish anything.
 
 ---
 
