@@ -52,6 +52,7 @@ A git install or local checkout uses the TypeScript entrypoints without a build.
 | GLM-5.3 Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.02 | $0.33 |
 | Kimi K3.1 Pro | 1.0M | ✅ | ✅ | $2.00 | $0.20 | $10.00 |
 | Kimi K3.1 Pro (flex) | 1.0M | ✅ | ✅ | $1.30 | $0.13 | $6.50 |
+| mammoth-1 (classifier; preview access) | 33K | ❌ | ❌ | $0.18 | $0.02 | — |
 | MiMo-V2.6-Pro | 1.0M | ✅ | ✅ | $0.43 | $0.00 | $0.87 |
 | MiMo-V2.6-Pro (flex) | 1.0M | ✅ | ✅ | $0.28 | $0.00 | $0.57 |
 | Neuralwatt Flash | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |

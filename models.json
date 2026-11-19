@@ -357,6 +357,22 @@
     "hostedTools": false
   },
   {
+    "type": "classifier",
+    "api": "typesafe-system-one",
+    "id": "mammoth-1",
+    "name": "mammoth-1",
+    "input": [
+      "text"
+    ],
+    "cost": {
+      "input": 0.18,
+      "output": 0,
+      "cacheRead": 0.018,
+      "cacheWrite": 0
+    },
+    "contextWindow": 32753
+  },
+  {
     "id": "mimo-v2.6-pro",
     "name": "MiMo-V2.6-Pro",
     "reasoning": true,
