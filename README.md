@@ -41,7 +41,6 @@ A git install or local checkout uses the TypeScript entrypoints without a build.
 
 | Model | Context | Vision | Reasoning | Input $/M | Cache Read $/M | Output $/M |
 |-------|---------|--------|-----------|-----------|-----------------|------------|
-| Clef Flash (classifier; preview access) | 262K | ✅ | ❌ | $0.18 | $0.02 | — |
 | DeepSeek V4.1 Flash | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
 | DeepSeek V4.1 Flash (flex) | 1.0M | ✅ | ✅ | $0.10 | $0.01 | $0.39 |
 | DeepSeek V4.1 Flash (Speed) | 1.0M | ✅ | ✅ | $0.15 | $0.01 | $0.60 |
@@ -69,6 +68,7 @@ A git install or local checkout uses the TypeScript entrypoints without a build.
 | Kimi K3 | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |
 | Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
 | Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |
+| Clef Flash (classifier; preview access) | 262K | ✅ | ❌ | $0.18 | $0.02 | — |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
 | Kimi K2.5 Long (MCR 1M) | 1.0M | ✅ | ✅ | $0.52 | — | $2.59 |

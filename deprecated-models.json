@@ -97,5 +97,23 @@
     },
     "hostedTools": false,
     "deprecatedAt": "2026-11-12T06:59:59.338Z"
+  },
+  "clef-flash": {
+    "type": "classifier",
+    "api": "typesafe-system-one",
+    "id": "clef-flash",
+    "name": "Clef Flash",
+    "input": [
+      "text",
+      "image"
+    ],
+    "cost": {
+      "input": 0.18,
+      "output": 0,
+      "cacheRead": 0.018,
+      "cacheWrite": 0
+    },
+    "contextWindow": 262128,
+    "deprecatedAt": "2026-11-21T06:55:29.334Z"
   }
 }

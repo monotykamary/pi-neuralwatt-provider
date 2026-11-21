@@ -1,22 +1,5 @@
 [
   {
-    "type": "classifier",
-    "api": "typesafe-system-one",
-    "id": "clef-flash",
-    "name": "Clef Flash",
-    "input": [
-      "text",
-      "image"
-    ],
-    "cost": {
-      "input": 0.18,
-      "output": 0,
-      "cacheRead": 0.018,
-      "cacheWrite": 0
-    },
-    "contextWindow": 262128
-  },
-  {
     "id": "deepseek-v4.1-flash",
     "name": "DeepSeek V4.1 Flash",
     "reasoning": true,
