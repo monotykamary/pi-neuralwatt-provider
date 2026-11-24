@@ -720,7 +720,7 @@
       "cacheWrite": 0
     },
     "contextWindow": 262128,
-    "maxTokens": 262128,
+    "maxTokens": 131072,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
@@ -755,7 +755,7 @@
       "cacheWrite": 0
     },
     "contextWindow": 262128,
-    "maxTokens": 262128,
+    "maxTokens": 131072,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
@@ -790,7 +790,7 @@
       "cacheWrite": 0
     },
     "contextWindow": 262128,
-    "maxTokens": 262128,
+    "maxTokens": 131072,
     "compat": {
       "supportsDeveloperRole": false,
       "supportsReasoningEffort": true
