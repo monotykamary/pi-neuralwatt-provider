@@ -65,9 +65,6 @@ A git install or local checkout uses the TypeScript entrypoints without a build.
 | Qwen3.6 35B | 262K | ✅ | ✅ | $0.29 | $0.03 | $1.15 |
 | Qwen3.6 35B (flex) | 262K | ✅ | ✅ | $0.19 | $0.02 | $0.75 |
 | Qwen3.6 35B Fast | 262K | ✅ | ❌ | $0.29 | $0.03 | $1.15 |
-| Kimi K3 | 1.0M | ✅ | ✅ | $3.00 | $0.30 | $15.00 |
-| Kimi K3 (flex) | 1.0M | ✅ | ✅ | $1.95 | $0.20 | $9.75 |
-| Kimi K3 Fast | 1.0M | ✅ | ❌ | $3.00 | $0.30 | $15.00 |
 | Clef Flash (classifier; preview access) | 262K | ✅ | ❌ | $0.18 | $0.02 | — |
 | GLM-5 Long (MCR 1M) | 1.0M | ❌ | ✅ | $1.10 | — | $3.60 |
 | GLM-5.1 Fast Long (MCR 1M) | 1.0M | ❌ | ❌ | $1.10 | — | $3.60 |
